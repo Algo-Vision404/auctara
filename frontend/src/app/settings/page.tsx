@@ -17,7 +17,10 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <TopBar title="Settings" subtitle="Appearance and backend configuration status." />
+      {/* The header's own theme toggle is hidden here: this page's "Appearance"
+          card below is the dedicated, canonical control for it, and showing
+          both at once would put two identical switches on screen together. */}
+      <TopBar title="Settings" subtitle="Appearance and backend configuration status." showThemeToggle={false} />
       <main className="mx-auto w-full max-w-2xl flex-1 space-y-6 px-5 py-6 md:px-8">
         <div className="card-surface flex items-center justify-between p-6">
           <div>

@@ -6,7 +6,15 @@ import { api } from "@/lib/api";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { Badge } from "@/components/ui/Badge";
 
-export function TopBar({ title, subtitle }: { title: string; subtitle?: string }) {
+export function TopBar({
+  title,
+  subtitle,
+  showThemeToggle = true,
+}: {
+  title: string;
+  subtitle?: string;
+  showThemeToggle?: boolean;
+}) {
   const [error, setError] = useState(false);
 
   useEffect(() => {
@@ -36,7 +44,7 @@ export function TopBar({ title, subtitle }: { title: string; subtitle?: string }
             Backend unreachable
           </Badge>
         )}
-        <ThemeToggle />
+        {showThemeToggle && <ThemeToggle />}
       </div>
     </header>
   );
