@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
@@ -13,6 +14,7 @@ import {
   ScrollText,
   Settings2,
   ShieldHalf,
+  MoreHorizontal,
 } from "lucide-react";
 
 const items = [
@@ -74,28 +76,86 @@ export function Sidebar() {
   );
 }
 
+// Only the most frequently used pages get a direct tab. The rest live
+// behind "More" so every page stays reachable on mobile instead of silently
+// dropping off the bottom nav once there are more than 5 nav items.
+const MOBILE_PRIMARY_HREFS = ["/", "/agents", "/activity", "/ledger"];
+
 export function MobileNav() {
   const pathname = usePathname();
-  const mobileItems = items.slice(0, 5);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const primaryItems = items.filter((item) => MOBILE_PRIMARY_HREFS.includes(item.href));
+  const overflowItems = items.filter((item) => !MOBILE_PRIMARY_HREFS.includes(item.href));
+  const overflowActive = overflowItems.some((item) => pathname.startsWith(item.href));
+
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [pathname]);
+
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-[var(--color-border)] bg-[var(--color-surface)] md:hidden">
-      {mobileItems.map((item) => {
-        const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-        const Icon = item.icon;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
+    <>
+      {moreOpen && (
+        <button
+          aria-label="Close menu"
+          onClick={() => setMoreOpen(false)}
+          className="fixed inset-0 z-40 bg-black/30 md:hidden"
+        />
+      )}
+      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--color-border)] bg-[var(--color-surface)] md:hidden">
+        {moreOpen && (
+          <div className="absolute inset-x-0 bottom-full border-t border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+            {overflowItems.map((item) => {
+              const active = pathname.startsWith(item.href);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={clsx(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",
+                    active
+                      ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                      : "text-[var(--color-text-secondary)]"
+                  )}
+                >
+                  <Icon size={18} />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        )}
+        <div className="flex">
+          {primaryItems.map((item) => {
+            const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={clsx(
+                  "flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium",
+                  active ? "text-[var(--color-accent)]" : "text-[var(--color-text-muted)]"
+                )}
+              >
+                <Icon size={18} />
+                {item.label.split(" ")[0]}
+              </Link>
+            );
+          })}
+          <button
+            onClick={() => setMoreOpen((v) => !v)}
+            aria-expanded={moreOpen}
             className={clsx(
               "flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium",
-              active ? "text-[var(--color-accent)]" : "text-[var(--color-text-muted)]"
+              moreOpen || overflowActive ? "text-[var(--color-accent)]" : "text-[var(--color-text-muted)]"
             )}
           >
-            <Icon size={18} />
-            {item.label.split(" ")[0]}
-          </Link>
-        );
-      })}
-    </nav>
+            <MoreHorizontal size={18} />
+            More
+          </button>
+        </div>
+      </nav>
+    </>
   );
 }
