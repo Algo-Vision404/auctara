@@ -23,7 +23,11 @@ export default function AuditPage() {
     const load = () => {
       api
         .listAudit({ limit: 300 })
-        .then((data) => mounted && setRecords(data))
+        .then((data) => {
+          if (!mounted) return;
+          setRecords(data);
+          setError(null);
+        })
         .catch((e) => mounted && setError(e instanceof ApiError ? e.message : "Failed to load audit trail"))
         .finally(() => mounted && setLoading(false));
     };
@@ -38,6 +42,7 @@ export default function AuditPage() {
   async function verify() {
     setVerifying(true);
     setVerifyResult(null);
+    setError(null);
     try {
       const r = await api.verifyAudit();
       setVerifyResult(r);

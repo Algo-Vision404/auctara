@@ -57,6 +57,7 @@ export default function SchedulePage() {
           if (!mounted) return;
           setAgents(a);
           setSchedules(s);
+          setError(null);
           if (!agentId && a.length > 0) setAgentId(a[0].id);
         })
         .catch((e) => mounted && setError(e instanceof ApiError ? e.message : "Failed to load schedule data"));
@@ -107,6 +108,7 @@ export default function SchedulePage() {
     try {
       const updated = await api.updateSchedule(id, { status });
       setSchedules((prev) => prev.map((s) => (s.id === id ? updated : s)));
+      setError(null);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to update schedule");
     } finally {
@@ -120,6 +122,7 @@ export default function SchedulePage() {
     try {
       await api.deleteSchedule(id);
       setSchedules((prev) => prev.filter((s) => s.id !== id));
+      setError(null);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to delete schedule");
     } finally {

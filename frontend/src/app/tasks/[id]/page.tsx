@@ -23,6 +23,7 @@ export default function TaskPage() {
         .then((t) => {
           if (!mounted) return;
           setTask(t);
+          setError(null);
           const tx = (t.transactions || [])[0];
           if (tx && !redirected.current) {
             redirected.current = true;
