@@ -1,5 +1,6 @@
 import {
   CircleCheck,
+  Shield,
   ShieldX,
   Clock3,
   Search,
@@ -34,7 +35,13 @@ const META: Record<string, EventMeta> = {
   PAGE_FETCH_COMPLETED: { icon: FileText, tone: "accent", label: "Page read" },
   PAGE_FETCH_FAILED: { icon: TriangleAlert, tone: "danger", label: "Page read failed" },
   PROPOSAL_CREATED: { icon: ReceiptText, tone: "accent", label: "Proposal created" },
-  POLICY_EVALUATED: { icon: ShieldX, tone: "info", label: "Policy evaluated" },
+  // Fires on every evaluation, before the outcome (allow/block) is known, so
+  // it needs a neutral icon. It previously reused ShieldX, the same icon as
+  // POLICY_BLOCKED below: a shield-with-X reads as "blocked" on sight
+  // regardless of its blue "info" color, so every transaction looked like it
+  // had been denied in the Activity feed and Audit trail, even ones that
+  // went on to be allowed.
+  POLICY_EVALUATED: { icon: Shield, tone: "info", label: "Policy evaluated" },
   POLICY_ALLOWED: { icon: CircleCheck, tone: "success", label: "Policy allowed" },
   POLICY_BLOCKED: { icon: ShieldX, tone: "danger", label: "Policy blocked" },
   APPROVAL_REQUESTED: { icon: Clock3, tone: "warning", label: "Approval requested" },

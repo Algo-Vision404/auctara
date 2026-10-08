@@ -104,7 +104,7 @@ function PolicySandbox({ agents }: { agents: Agent[] }) {
         <select
           value={agentId}
           onChange={(e) => setAgentId(e.target.value)}
-          className="field-input rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-sm"
+          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-sm"
         >
           {agents.map((a) => (
             <option key={a.id} value={a.id}>
