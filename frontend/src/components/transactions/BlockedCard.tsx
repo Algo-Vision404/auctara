@@ -1,18 +1,42 @@
 import { Transaction, Agent } from "@/lib/types";
 import { money } from "@/lib/format";
-import { ShieldX } from "lucide-react";
+import { ShieldX, Ban } from "lucide-react";
 
 export function BlockedCard({ tx, agent }: { tx: Transaction; agent: Agent | null }) {
+  // The agent itself can decline a task as outside its assigned purpose
+  // before ever producing a proposal (see orchestrator.OutOfScopeError on
+  // the backend), in which case tx.amount/merchant were never set. That is
+  // a meaningfully different outcome from a real proposal hitting a dollar
+  // or category limit, so it gets its own heading and skips the amount
+  // figure entirely instead of showing a bare, confusing "N/A".
+  const declinedBeforeProposal = tx.amount == null;
+
   return (
     <div className="card-elevated animate-enter overflow-hidden">
       <div className="border-b border-[var(--color-border)] bg-[var(--color-danger-soft)] px-6 py-5">
         <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[var(--color-danger)]">
-          <ShieldX size={14} /> Transaction Blocked
+          {declinedBeforeProposal ? (
+            <>
+              <Ban size={14} /> Task Declined
+            </>
+          ) : (
+            <>
+              <ShieldX size={14} /> Transaction Blocked
+            </>
+          )}
         </p>
-        <p className="mt-1 font-mono-ui text-4xl font-semibold tracking-tight">
-          {money(tx.amount, tx.currency || "USD")}
-        </p>
-        {tx.merchant && <p className="mt-1 text-base font-medium">{tx.merchant}</p>}
+        {declinedBeforeProposal ? (
+          <p className="mt-1 text-base font-medium">
+            The agent declined this task before researching or proposing anything.
+          </p>
+        ) : (
+          <>
+            <p className="mt-1 font-mono-ui text-4xl font-semibold tracking-tight">
+              {money(tx.amount, tx.currency || "USD")}
+            </p>
+            {tx.merchant && <p className="mt-1 text-base font-medium">{tx.merchant}</p>}
+          </>
+        )}
       </div>
       <div className="space-y-4 px-6 py-5">
         <div>
@@ -36,7 +60,9 @@ export function BlockedCard({ tx, agent }: { tx: Transaction; agent: Agent | nul
           </div>
         )}
         <div className="rounded-xl bg-[var(--color-surface-2)] px-4 py-3 text-sm font-medium text-[var(--color-text-secondary)]">
-          No PayPal transaction was captured.
+          {declinedBeforeProposal
+            ? "No research was performed and no PayPal transaction was ever created."
+            : "No PayPal transaction was captured."}
         </div>
       </div>
     </div>

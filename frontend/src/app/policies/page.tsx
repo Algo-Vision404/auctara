@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { api, ApiError } from "@/lib/api";
 import { Agent } from "@/lib/types";
 import { titleCase } from "@/lib/format";
-import { ShieldCheck, Save, FlaskConical, Plus } from "lucide-react";
+import { ShieldCheck, Save, FlaskConical, Plus, TriangleAlert } from "lucide-react";
 
 export default function PoliciesPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -294,6 +294,14 @@ function PolicyEditor({ agent }: { agent: Agent }) {
             setForm({ ...form, allowed_categories: e.target.value.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean) })
           }
         />
+        {form.allowed_categories.length === 0 && (
+          <p className="mt-1.5 flex items-start gap-1.5 text-[11px] text-[var(--color-warning)]">
+            <TriangleAlert size={12} className="mt-0.5 shrink-0" />
+            No category restriction: this agent can attempt to purchase anything not explicitly blocked
+            above, even things unrelated to its assigned purpose. Set this to the specific categories it
+            should ever touch (e.g. software, subscriptions) to actually scope it.
+          </p>
+        )}
       </div>
       {hasInvalidPolicyValue && (
         <p className="text-sm text-[var(--color-danger)]">

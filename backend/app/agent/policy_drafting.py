@@ -10,34 +10,57 @@ import json
 
 from openai import AsyncOpenAI
 
+from app.agent.categories import PURCHASE_CATEGORIES
 from app.config import get_settings
 
-DRAFT_SYSTEM_PROMPT = """You convert a user's natural-language delegation \
+DRAFT_SYSTEM_PROMPT = f"""You convert a user's natural-language delegation \
 instructions into a strict JSON financial policy object for an AI purchasing \
 agent. Be conservative: if the user doesn't mention a limit, choose a sensible \
 modest default. Always return valid JSON matching exactly this shape:
 
-{
+{{
   "agent_name": string,
   "agent_purpose": string,
   "max_transaction_amount": number,
   "approval_threshold": number,
   "daily_limit": number,
   "monthly_limit": number,
-  "velocity": {"max_transactions": integer, "window_minutes": integer},
+  "velocity": {{"max_transactions": integer, "window_minutes": integer}},
   "price_variance_tolerance": number (0-1, default 0.05),
   "blocked_categories": [string],
   "allowed_categories": [string]
-}
+}}
 
 Rules:
 - approval_threshold is the amount the agent can spend WITHOUT asking a human.
 - max_transaction_amount is the absolute ceiling. Anything above it must be \
 blocked outright, even with approval. It should be >= approval_threshold. If \
 the user does not imply a hard ceiling, set it to 1.5x the approval_threshold.
-- allowed_categories may be empty (meaning: any category not blocked is ok).
+- allowed_categories is the single most important scoping control you set: \
+when it is non-empty, the agent can ONLY ever purchase in those exact \
+categories, no matter what it is later asked to buy. The purchasing agent \
+always classifies what it buys into one of exactly these categories: \
+{', '.join(PURCHASE_CATEGORIES)}. Pick every category from that exact list \
+(lowercase, verbatim) that is a genuine, direct fit for the purpose the user \
+described, and put them in allowed_categories. For example, "manage our \
+SaaS subscriptions" implies ["software", "subscriptions"], not every \
+category: it must NOT also include "travel" or "other" just because they \
+exist in the list. This is what actually stops a narrowly-scoped agent from \
+being used for something unrelated later (like buying snacks or travel) even \
+if that later request looks small, cheap, or easy to satisfy: it is \
+rejected deterministically by category, before any AI judgment call is \
+involved again.
+- Only leave allowed_categories empty if the user's own instructions \
+describe broad, general-purpose purchasing authority across categories \
+(e.g. "handle all company purchasing" or "buy anything the team needs"), \
+never as a default when the purpose is actually narrow.
+- blocked_categories is a secondary, explicit exclusion list on top of \
+allowed_categories (e.g. the user says "never buy gambling or crypto"). Use \
+it for named exclusions the user actually stated; it does not need to \
+duplicate what allowed_categories already excludes by omission.
 - Respond with JSON only, no prose, no markdown fences.
 """
+
 
 
 class PolicyDraftError(Exception):

@@ -6,6 +6,8 @@ only by the deterministic orchestrator after the model has finished.
 """
 from __future__ import annotations
 
+from app.agent.categories import PURCHASE_CATEGORIES
+
 TOOL_SCHEMAS = [
     {
         "type": "function",
@@ -94,8 +96,7 @@ TOOL_SCHEMAS = [
                     "currency": {"type": "string", "description": "3-letter ISO currency code"},
                     "category": {
                         "type": "string",
-                        "description": "One of: software, office, business, hardware, travel, "
-                        "marketing, subscriptions, other",
+                        "description": f"One of: {', '.join(PURCHASE_CATEGORIES)}",
                     },
                     "reason": {"type": "string", "description": "Why this option was chosen."},
                     "source_url": {"type": "string", "description": "URL of the listing found."},
@@ -113,6 +114,31 @@ TOOL_SCHEMAS = [
                     },
                 },
                 "required": ["merchant", "amount", "currency", "category", "reason", "source_url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "decline_out_of_scope_task",
+            "description": (
+                "Decline to research or propose anything because this task has no "
+                "reasonable connection to the agent's stated purpose and standing "
+                "directive. Call this immediately instead of researching or calling "
+                "create_purchase_proposal whenever the task is clearly outside what "
+                "this agent was delegated to do (for example, a SaaS/subscription "
+                "procurement agent being asked to buy snacks, entertainment, or "
+                "anything unrelated to its assigned role)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Brief explanation of why this task is outside the agent's assigned scope.",
+                    },
+                },
+                "required": ["reason"],
             },
         },
     },

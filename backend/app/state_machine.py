@@ -30,7 +30,13 @@ TERMINAL_STATES = {"BLOCKED", "COMPLETED", "VOIDED", "FAILED"}
 
 ALLOWED_EDGES: dict[str, set[str]] = {
     "CREATED": {"RESEARCHING", "FAILED"},
-    "RESEARCHING": {"PROPOSED", "FAILED"},
+    # BLOCKED here specifically covers the agent itself declining a task as
+    # outside its assigned purpose/directive (see
+    # orchestrator.OutOfScopeError), before any proposal is ever produced.
+    # It is a deliberate refusal, not a research failure, so it ends in the
+    # same terminal state a deterministic policy block does rather than
+    # FAILED.
+    "RESEARCHING": {"PROPOSED", "FAILED", "BLOCKED"},
     "PROPOSED": {"POLICY_CHECK", "FAILED"},
     "POLICY_CHECK": {"BLOCKED", "AWAITING_APPROVAL", "AUTHORIZED", "FAILED"},
     "AWAITING_APPROVAL": {"AUTHORIZED", "BLOCKED", "FAILED"},

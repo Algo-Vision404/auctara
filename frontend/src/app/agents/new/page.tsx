@@ -6,7 +6,7 @@ import { TopBar } from "@/components/nav/TopBar";
 import { Button } from "@/components/ui/Button";
 import { api, ApiError } from "@/lib/api";
 import { PolicyDraft } from "@/lib/types";
-import { Sparkles, ShieldCheck, Ban, ArrowRight, Loader2, CircleCheck } from "lucide-react";
+import { Sparkles, ShieldCheck, Ban, ArrowRight, Loader2, CircleCheck, TriangleAlert } from "lucide-react";
 
 const EXAMPLE =
   "Manage our SaaS subscriptions.\n\nYou can spend up to $100 without asking me.\n\nAnything above that needs approval.\n\nNever buy gambling or crypto products.\n\nMonthly budget is $2,000.";
@@ -164,6 +164,14 @@ export default function NewAgentPage() {
                   onChange={(v) => updateDraft("allowed_categories", v)}
                   placeholder="empty = any non-blocked category"
                 />
+                {draft.allowed_categories.length === 0 && (
+                  <p className="mt-2 flex items-start gap-1.5 text-[11px] text-[var(--color-warning)]">
+                    <TriangleAlert size={12} className="mt-0.5 shrink-0" />
+                    No category restriction: this agent can attempt to purchase anything not explicitly
+                    blocked, not just what its purpose describes. Scope it to specific categories (e.g.
+                    software, subscriptions) unless you actually intend broad purchasing authority.
+                  </p>
+                )}
               </div>
             </div>
 

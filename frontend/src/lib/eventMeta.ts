@@ -9,6 +9,7 @@ import {
   ReceiptText,
   TriangleAlert,
   Bot,
+  Ban,
   ScrollText,
   CircleDollarSign,
   FileText,
@@ -35,6 +36,14 @@ const META: Record<string, EventMeta> = {
   PAGE_FETCH_COMPLETED: { icon: FileText, tone: "accent", label: "Page read" },
   PAGE_FETCH_FAILED: { icon: TriangleAlert, tone: "danger", label: "Page read failed" },
   PROPOSAL_CREATED: { icon: ReceiptText, tone: "accent", label: "Proposal created" },
+  // Deliberately a different icon from POLICY_BLOCKED (ShieldX): this fires
+  // when the agent itself refuses a task as outside its assigned purpose,
+  // before any proposal or policy evaluation ever happens. Giving it its own
+  // Ban icon keeps "the agent declined this" visually distinct from "the
+  // deterministic policy engine blocked this" in the Activity feed and Audit
+  // trail, since they are two different layers of this platform's
+  // guardrails and which one fired is meaningful.
+  TASK_DECLINED_OUT_OF_SCOPE: { icon: Ban, tone: "danger", label: "Declined: outside agent's scope" },
   // Fires on every evaluation, before the outcome (allow/block) is known, so
   // it needs a neutral icon. It previously reused ShieldX, the same icon as
   // POLICY_BLOCKED below: a shield-with-X reads as "blocked" on sight

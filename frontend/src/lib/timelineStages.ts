@@ -11,22 +11,37 @@ export function buildTimelineStages(tx: Transaction): TimelineStage[] {
   const timeline = tx.timeline || [];
   const find = (type: string) => timeline.find((r) => r.event_type === type);
 
+  // The agent itself can refuse a task as outside its assigned purpose,
+  // before any proposal or policy evaluation ever happens (see
+  // orchestrator.OutOfScopeError on the backend). The first two stages below
+  // need to reflect that distinctly from "not reached yet", otherwise an
+  // already-terminal, declined transaction looks like it is stuck waiting.
+  const declined = find("TASK_DECLINED_OUT_OF_SCOPE");
+
   const stages: TimelineStage[] = [
     {
       key: "proposed",
       label: "Agent Proposed",
       icon: Bot,
-      status: find("PROPOSAL_CREATED") ? "done" : "pending",
-      timestamp: find("PROPOSAL_CREATED")?.created_at,
-      detail: tx.merchant ? `${tx.merchant}: ${money(tx.amount, tx.currency || "USD")}` : undefined,
+      status: declined ? "failed" : find("PROPOSAL_CREATED") ? "done" : "pending",
+      timestamp: declined?.created_at || find("PROPOSAL_CREATED")?.created_at,
+      detail: declined
+        ? `Declined: ${tx.decision_reason || "outside this agent's assigned purpose"}`
+        : tx.merchant
+        ? `${tx.merchant}: ${money(tx.amount, tx.currency || "USD")}`
+        : undefined,
     },
     {
       key: "policy",
       label: "Policy Evaluated",
       icon: ShieldCheck,
-      status: find("POLICY_EVALUATED") ? "done" : "pending",
+      status: declined ? "skipped" : find("POLICY_EVALUATED") ? "done" : "pending",
       timestamp: find("POLICY_EVALUATED")?.created_at,
-      detail: tx.decision ? `${tx.decision.replace("_", " ")}: ${tx.decision_reason || ""}` : undefined,
+      detail: declined
+        ? "Skipped: the agent declined this task before any proposal reached the policy engine."
+        : tx.decision
+        ? `${tx.decision.replace("_", " ")}: ${tx.decision_reason || ""}`
+        : undefined,
     },
   ];
 
@@ -74,11 +89,14 @@ export function buildTimelineStages(tx: Transaction): TimelineStage[] {
       key: "audit",
       label: "Audit Sealed",
       icon: ScrollText,
-      status: find("POLICY_BLOCKED") ? "done" : "pending",
-      timestamp: find("POLICY_BLOCKED")?.created_at,
-      detail: "Block decision permanently recorded. No PayPal transaction created.",
+      status: find("POLICY_BLOCKED") || declined ? "done" : "pending",
+      timestamp: (find("POLICY_BLOCKED") || declined)?.created_at,
+      detail: declined
+        ? "Decline decision permanently recorded. No proposal or PayPal transaction was ever created."
+        : "Block decision permanently recorded. No PayPal transaction created.",
     });
   }
 
   return stages;
 }
+

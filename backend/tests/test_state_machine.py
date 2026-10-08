@@ -32,6 +32,16 @@ def test_void_flow():
     assert current == "VOIDED"
 
 
+def test_agent_can_decline_directly_from_researching():
+    """An agent declining a task as outside its assigned purpose (see
+    orchestrator.OutOfScopeError) happens before any proposal exists, so it
+    must transition straight from RESEARCHING to BLOCKED, not through
+    PROPOSED/POLICY_CHECK like a real policy-engine block does."""
+    current = transition("RESEARCHING", "BLOCKED")
+    assert current == "BLOCKED"
+    assert can_transition("BLOCKED", "AUTHORIZED") is False
+
+
 def test_invalid_transition_raises():
     with pytest.raises(InvalidTransition):
         transition("CREATED", "CAPTURED")

@@ -64,6 +64,15 @@ class AgentError(Exception):
     pass
 
 
+class OutOfScopeError(Exception):
+    """Raised when the agent itself declines a task via decline_out_of_scope_task
+    because it has no reasonable connection to the agent's stated purpose and
+    directive. Deliberately not an AgentError: this is the agent correctly
+    refusing to act outside its delegated role, not a failure of the research
+    pipeline, and it is reported to the user as a distinct, clean outcome
+    rather than a generic error."""
+
+
 async def emit(event_type: str, message: str, *, task_id: Optional[str] = None,
                 transaction_id: Optional[str] = None, agent_id: Optional[str] = None,
                 payload: Optional[dict] = None, audit: bool = True) -> None:
@@ -122,6 +131,9 @@ async def run_task(task_id: str) -> None:
 
     try:
         proposal = await _run_research_loop(agent, task, tx_id)
+    except OutOfScopeError as exc:
+        await _decline_out_of_scope(tx_id, task_id, agent["id"], str(exc))
+        return
     except (SearchError, AgentError) as exc:
         await _fail(tx_id, task_id, agent["id"], str(exc))
         return
@@ -327,6 +339,12 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str) -> dict:
                     continue
                 return args
 
+            elif name == "decline_out_of_scope_task":
+                reason = (args.get("reason") or "").strip() or (
+                    "This task has no reasonable connection to the agent's stated purpose."
+                )
+                raise OutOfScopeError(reason)
+
             else:
                 messages.append({
                     "role": "tool", "tool_call_id": call.id,
@@ -373,6 +391,22 @@ async def _fail(tx_id: str, task_id: str, agent_id: str, message: str) -> None:
     models.update_task_status(task_id, "FAILED", message)
     await emit("TRANSACTION_FAILED", message, task_id=task_id, agent_id=agent_id, transaction_id=tx_id,
                 payload={"error": message})
+
+
+async def _decline_out_of_scope(tx_id: str, task_id: str, agent_id: str, reason: str) -> None:
+    """The agent itself refused a task outside its assigned purpose, before
+    any research or proposal was made. Reported as BLOCKED, the same terminal
+    state a deterministic policy block ends in (no PayPal transaction is ever
+    created either way), but under its own distinct event type so the
+    Activity feed and Audit trail never conflate 'the agent declined this'
+    with 'the deterministic policy engine blocked this'. Those are two
+    different layers of this platform's guardrails, and which one actually
+    fired is exactly the kind of thing this platform exists to make visible.
+    """
+    _set_tx_state(tx_id, "RESEARCHING", "BLOCKED", decision="BLOCK", decision_reason=reason)
+    models.update_task_status(task_id, "BLOCKED")
+    await emit("TASK_DECLINED_OUT_OF_SCOPE", reason, task_id=task_id, agent_id=agent_id,
+                transaction_id=tx_id, payload={"reason": reason})
 
 
 async def approve_transaction(tx_id: str) -> dict:
