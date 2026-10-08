@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any, Optional
 
-from openai import AsyncOpenAI
+from openai import APIStatusError, AsyncOpenAI
 
 from app.agent.prompts import SYSTEM_PROMPT, build_task_prompt
 from app.agent.tools import TOOL_SCHEMAS
@@ -32,6 +32,31 @@ from app.streaming.events import bus
 logger = logging.getLogger("agentauth.orchestrator")
 
 MAX_TOOL_ITERATIONS = 8
+
+
+def _humanize_llm_error(exc: Exception) -> str:
+    """Turn a raw OpenRouter/OpenAI SDK exception into a short, human-readable
+    message for the UI and activity log, while the full original exception is
+    still logged server-side (and chained via `from exc`) for real debugging.
+    Never fabricates a cause — only reformats the genuine one.
+    """
+    if isinstance(exc, APIStatusError):
+        inner = None
+        if isinstance(exc.body, dict):
+            inner = (exc.body.get("error") or {}).get("message") if isinstance(exc.body.get("error"), dict) else None
+        inner = inner or getattr(exc, "message", None) or str(exc)
+        if exc.status_code == 402:
+            return (
+                "OpenRouter rejected the request: the account doesn't have enough "
+                "credit for this model/response length. Add credits at "
+                "openrouter.ai/settings/credits or lower OPENROUTER_MODEL's cost."
+            )
+        if exc.status_code == 401:
+            return "OpenRouter rejected the API key. Check OPENROUTER_API_KEY in the backend's .env."
+        if exc.status_code == 429:
+            return "OpenRouter rate-limited this request. Try again in a moment."
+        return f"OpenRouter returned an error (HTTP {exc.status_code}): {inner}"
+    return f"AI model request failed: {type(exc).__name__}: {str(exc)[:200]}"
 
 
 class AgentError(Exception):
@@ -100,7 +125,8 @@ async def run_task(task_id: str) -> None:
         await _fail(tx_id, task_id, agent["id"], str(exc))
         return
     except Exception as exc:  # noqa: BLE001
-        await _fail(tx_id, task_id, agent["id"], f"Agent execution failed: {exc}")
+        logger.exception("Unexpected error in agent research loop")
+        await _fail(tx_id, task_id, agent["id"], f"Agent execution failed: {type(exc).__name__}: {str(exc)[:200]}")
         return
 
     try:
@@ -185,7 +211,8 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str) -> dict:
                 max_tokens=1024,
             )
         except Exception as exc:  # noqa: BLE001
-            raise AgentError(f"AI model request failed: {exc}") from exc
+            logger.exception("OpenRouter chat.completions.create failed")
+            raise AgentError(_humanize_llm_error(exc)) from exc
 
         choice = response.choices[0]
         msg = choice.message
