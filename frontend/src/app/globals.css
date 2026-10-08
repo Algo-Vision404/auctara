@@ -103,16 +103,16 @@ body {
   color: var(--color-text);
 }
 
-/* --- Tactile 3D block button system --- */
+/* --- Tactile button system --- */
 .btn-block {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   font-family: var(--font-sora);
   font-weight: 600;
-  border-radius: 14px;
+  border-radius: 10px;
   border: 1px solid transparent;
   cursor: pointer;
   user-select: none;
@@ -131,17 +131,17 @@ body {
 .btn-primary {
   background: var(--color-accent);
   color: var(--color-accent-ink);
-  padding: 0.9rem 1.5rem;
-  font-size: 0.95rem;
-  box-shadow: 0 5px 0 0 var(--tactile-depth);
+  padding: 0.55rem 1.05rem;
+  font-size: 0.875rem;
+  box-shadow: 0 3px 0 0 var(--tactile-depth);
   transform: translateY(0);
 }
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 6px 0 0 var(--tactile-depth);
+  box-shadow: 0 4px 0 0 var(--tactile-depth);
 }
 .btn-primary:active:not(:disabled) {
-  transform: translateY(4px);
+  transform: translateY(2px);
   box-shadow: 0 1px 0 0 var(--tactile-depth);
 }
 
@@ -150,25 +150,25 @@ body {
   background: var(--color-surface);
   color: var(--color-danger);
   border: 1.5px solid var(--color-danger);
-  padding: 0.9rem 1.5rem;
-  font-size: 0.95rem;
-  box-shadow: 0 4px 0 0 color-mix(in srgb, var(--color-danger) 45%, transparent);
+  padding: 0.55rem 1.05rem;
+  font-size: 0.875rem;
+  box-shadow: 0 2.5px 0 0 color-mix(in srgb, var(--color-danger) 45%, transparent);
 }
 .btn-danger:hover:not(:disabled) {
   transform: translateY(-1px);
   background: var(--color-danger-soft);
 }
 .btn-danger:active:not(:disabled) {
-  transform: translateY(3px);
+  transform: translateY(2px);
   box-shadow: 0 1px 0 0 color-mix(in srgb, var(--color-danger) 45%, transparent);
 }
 
-/* Secondary (flatter) */
+/* Secondary (flatter, same height as primary/danger so they align when paired) */
 .btn-secondary {
   background: var(--color-surface-2);
   color: var(--color-text);
   border: 1px solid var(--color-border);
-  padding: 0.7rem 1.2rem;
+  padding: 0.55rem 1rem;
   font-size: 0.875rem;
   box-shadow: 0 2px 0 0 var(--color-border);
 }
@@ -185,8 +185,8 @@ body {
 .btn-ghost {
   background: transparent;
   color: var(--color-text-secondary);
-  padding: 0.6rem 1rem;
-  font-size: 0.875rem;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.8125rem;
 }
 .btn-ghost:hover:not(:disabled) {
   background: var(--color-surface-2);

@@ -89,7 +89,7 @@ export default function NewAgentPage() {
             placeholder="Describe the agent's purpose and spending authority in plain language..."
           />
           <Button variant="primary" onClick={handleDraft} loading={drafting} disabled={instructions.trim().length < 5}>
-            <Sparkles size={18} /> {drafting ? "Drafting policy…" : "Generate Policy"}
+            <Sparkles size={16} /> {drafting ? "Drafting policy…" : "Generate Policy"}
           </Button>
           {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
         </div>
@@ -186,7 +186,7 @@ export default function NewAgentPage() {
               loading={activating}
               disabled={hasInvalidPolicyValue}
             >
-              Activate Agent <ArrowRight size={18} />
+              Activate Agent <ArrowRight size={16} />
             </Button>
           </div>
         )}

@@ -103,7 +103,7 @@ export default function OverviewPage() {
           </div>
           <Link href="/agents/new">
             <Button variant="primary">
-              <Plus size={18} /> Create an Agent
+              <Plus size={16} /> Create an Agent
             </Button>
           </Link>
         </div>

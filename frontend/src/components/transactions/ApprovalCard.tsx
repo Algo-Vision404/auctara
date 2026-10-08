@@ -82,7 +82,7 @@ export function ApprovalCard({
 
         <div className="flex flex-col gap-3 pt-2 sm:flex-row">
           <Button variant="danger" onClick={() => handle("reject")} loading={busy === "reject"} disabled={!!busy}>
-            <ShieldX size={18} /> Block Transaction
+            <ShieldX size={16} /> Block Transaction
           </Button>
           <Button
             variant="primary"
@@ -91,7 +91,7 @@ export function ApprovalCard({
             loading={busy === "approve"}
             disabled={!!busy}
           >
-            <BadgeCheck size={18} /> Approve {money(tx.amount, tx.currency || "USD")}
+            <BadgeCheck size={16} /> Approve {money(tx.amount, tx.currency || "USD")}
           </Button>
         </div>
       </div>

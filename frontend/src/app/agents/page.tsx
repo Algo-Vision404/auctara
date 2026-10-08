@@ -30,7 +30,7 @@ export default function AgentsPage() {
         <div className="flex justify-end">
           <Link href="/agents/new">
             <Button variant="primary">
-              <Plus size={18} /> Create an Agent
+              <Plus size={16} /> Create an Agent
             </Button>
           </Link>
         </div>
@@ -47,7 +47,7 @@ export default function AgentsPage() {
             <p className="text-[var(--color-text-secondary)]">No agents yet.</p>
             <Link href="/agents/new">
               <Button variant="primary">
-                <Plus size={18} /> Create your first agent
+                <Plus size={16} /> Create your first agent
               </Button>
             </Link>
           </div>

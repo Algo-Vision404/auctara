@@ -41,7 +41,7 @@ export default function PoliciesPage() {
             </p>
             <Link href="/agents/new">
               <Button variant="primary">
-                <Plus size={18} /> Create your first agent
+                <Plus size={16} /> Create your first agent
               </Button>
             </Link>
           </div>
