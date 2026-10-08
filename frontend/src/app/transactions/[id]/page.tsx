@@ -238,13 +238,29 @@ export default function TransactionDetailPage() {
         )}
 
         {tx.state === "COMPLETED" && (
-          <div className="card-elevated space-y-2 border-l-4 border-l-[var(--color-success)] p-6">
-            <p className="flex items-center gap-2 text-sm font-semibold text-[var(--color-success)]">
-              <CircleCheck size={16} /> Transaction Completed
-            </p>
-            <p className="font-mono-ui text-xs text-[var(--color-text-muted)]">
-              Capture ID: {tx.paypal_capture_id} · Order ID: {tx.paypal_order_id}
-            </p>
+          <div className="card-elevated flex flex-col items-center gap-4 border-t-4 border-t-[var(--color-success)] px-6 py-10 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-success-soft)]">
+              <CircleCheck size={32} className="text-[var(--color-success)]" />
+            </span>
+            <div className="space-y-1">
+              <h2 className="font-sans text-2xl font-semibold text-[var(--color-text)]">Payment Completed</h2>
+              <p className="text-sm text-[var(--color-text-secondary)]">
+                PayPal captured {money(tx.actual_amount ?? tx.amount, tx.currency || "USD")} for{" "}
+                {tx.merchant}, authorized by your policy engine.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1 font-mono-ui text-xs text-[var(--color-text-muted)]">
+              <span>Capture ID: {tx.paypal_capture_id}</span>
+              <span>Order ID: {tx.paypal_order_id}</span>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              <Button variant="primary" onClick={() => router.push("/ledger")}>
+                View in Commerce Ledger
+              </Button>
+              <Button variant="secondary" onClick={() => router.push(`/agents/${tx.agent_id}`)}>
+                Back to Agent
+              </Button>
+            </div>
           </div>
         )}
 
