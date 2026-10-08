@@ -1,24 +1,78 @@
-"""PayPal integration tests using mocked HTTP responses (per spec: unit tests
-may mock PayPal; the real app always calls the real Sandbox API)."""
+"""PayPal integration tests using mocked SDK controller responses (per spec:
+unit tests may mock PayPal; the real app always calls the real Sandbox API
+through PayPal's official `paypal-server-sdk`).
+
+Responses are built with the SDK's own model classes (`Order.from_dictionary`,
+etc.) from plain PayPal-shaped JSON, so these tests also exercise the real
+`to_wire_dict` unwrapper in app.paypal.client — not just orders.py's own
+summarizing logic.
+"""
 import pytest
 
+from paypalserversdk.exceptions.error_exception import ErrorException
+from paypalserversdk.models.captured_payment import CapturedPayment
+from paypalserversdk.models.order import Order
+from paypalserversdk.models.payment_authorization import PaymentAuthorization
+
 from app.paypal import orders as paypal_orders
-from app.paypal.client import PayPalClient
+from app.paypal.client import PayPalError
 
 
-class FakeClient(PayPalClient):
-    def __init__(self, responses):
-        super().__init__()
-        self.responses = responses
+class FakeApiResponse:
+    """Stands in for apimatic_core's ApiResponse envelope: body + status_code."""
+
+    def __init__(self, body, status_code=200):
+        self.body = body
+        self.status_code = status_code
+
+
+class FakeHttpResponse:
+    """Stands in for the raw HttpResponse an ApiException wraps."""
+
+    def __init__(self, status_code, text):
+        self.status_code = status_code
+        self.text = text
+        self.reason_phrase = ""
+        self.headers = {}
+        self.request = None
+
+
+class FakeOrdersController:
+    def __init__(self, responses=None):
+        self.responses = responses or {}
         self.calls = []
 
-    async def request(self, method, path, json_body=None, extra_headers=None):
-        self.calls.append((method, path, json_body))
-        key = (method, path.split("?")[0])
-        for (m, p_prefix), resp in self.responses.items():
-            if m == method and path.startswith(p_prefix):
-                return resp
-        raise AssertionError(f"Unexpected call {method} {path}")
+    def create_order(self, options):
+        self.calls.append(("create_order", options))
+        return self.responses["create_order"]
+
+    def get_order(self, options):
+        self.calls.append(("get_order", options))
+        return self.responses["get_order"]
+
+    def authorize_order(self, options):
+        self.calls.append(("authorize_order", options))
+        return self.responses["authorize_order"]
+
+
+class FakePaymentsController:
+    def __init__(self, responses=None):
+        self.responses = responses or {}
+        self.calls = []
+
+    def capture_authorized_payment(self, options):
+        self.calls.append(("capture_authorized_payment", options))
+        return self.responses["capture_authorized_payment"]
+
+    def void_payment(self, options):
+        self.calls.append(("void_payment", options))
+        return self.responses["void_payment"]
+
+
+class FakeClient:
+    def __init__(self, order_responses=None, payment_responses=None):
+        self.orders = FakeOrdersController(order_responses)
+        self.payments = FakePaymentsController(payment_responses)
 
 
 ORDER_CREATED_WITH_AUTH = {
@@ -52,7 +106,9 @@ CAPTURE_RESPONSE = {"id": "CAPTURE789", "status": "COMPLETED", "amount": {"curre
 
 @pytest.mark.asyncio
 async def test_create_order_with_immediate_authorization(monkeypatch):
-    fake = FakeClient({("POST", "/v2/checkout/orders"): ORDER_CREATED_WITH_AUTH})
+    fake = FakeClient(order_responses={
+        "create_order": FakeApiResponse(Order.from_dictionary(ORDER_CREATED_WITH_AUTH)),
+    })
     monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
 
     result = await paypal_orders.create_order(
@@ -63,10 +119,17 @@ async def test_create_order_with_immediate_authorization(monkeypatch):
     assert result["authorization_id"] == "AUTH123"
     assert result["authorized_amount"] == 63.99
 
+    # The SDK's typed OrderRequest model made it through, not a raw dict.
+    _, options = fake.orders.calls[0]
+    assert options["body"].intent == "AUTHORIZE"
+    assert options["body"].purchase_units[0].custom_id == "tx_1"
+
 
 @pytest.mark.asyncio
 async def test_create_order_requires_buyer_approval(monkeypatch):
-    fake = FakeClient({("POST", "/v2/checkout/orders"): ORDER_CREATED_NO_AUTH})
+    fake = FakeClient(order_responses={
+        "create_order": FakeApiResponse(Order.from_dictionary(ORDER_CREATED_NO_AUTH)),
+    })
     monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
 
     result = await paypal_orders.create_order(
@@ -79,7 +142,9 @@ async def test_create_order_requires_buyer_approval(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_capture_authorization(monkeypatch):
-    fake = FakeClient({("POST", "/v2/payments/authorizations/AUTH123/capture"): CAPTURE_RESPONSE})
+    fake = FakeClient(payment_responses={
+        "capture_authorized_payment": FakeApiResponse(CapturedPayment.from_dictionary(CAPTURE_RESPONSE)),
+    })
     monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
 
     result = await paypal_orders.capture_authorization("AUTH123")
@@ -90,8 +155,38 @@ async def test_capture_authorization(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_void_authorization(monkeypatch):
-    fake = FakeClient({("POST", "/v2/payments/authorizations/AUTH123/void"): {"status_code": 204}})
+    fake = FakeClient(payment_responses={
+        "void_payment": FakeApiResponse(
+            PaymentAuthorization.from_dictionary({"id": "AUTH123", "status": "VOIDED"})
+        ),
+    })
     monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
 
     result = await paypal_orders.void_authorization("AUTH123")
     assert result["voided"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_order_translates_api_exception(monkeypatch):
+    """A real PayPal error (e.g. a malformed request) must surface as our own
+    PayPalError, with PayPal's actual error detail attached — never silently
+    swallowed or turned into a fake success."""
+    error_body = '{"name": "INVALID_REQUEST", "message": "Amount mismatch", "debug_id": "abc123"}'
+
+    def boom(options):
+        raise ErrorException("Request is not well-formed", FakeHttpResponse(400, error_body))
+
+    fake = FakeClient()
+    fake.orders.create_order = boom
+    monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
+
+    with pytest.raises(PayPalError) as exc_info:
+        await paypal_orders.create_order(
+            amount=63.99, currency="USD", description="Test", return_url="https://x/return",
+            cancel_url="https://x/cancel", custom_id="tx_1",
+        )
+
+    err = exc_info.value
+    assert err.status_code == 400
+    assert err.detail["name"] == "INVALID_REQUEST"
+    assert err.detail["debug_id"] == "abc123"

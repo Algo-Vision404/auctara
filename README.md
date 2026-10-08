@@ -129,12 +129,16 @@ deterministic policy engine in `backend/app/guardrails/`.
   occurrence is independently evaluated, not a fire-and-forget cron stub.
   The frontend visualizes it with Bryntum's native recurrence engine
   (`FREQ=DAILY/WEEKLY/MONTHLY`), not a hand-rolled calendar.
-- **APIMatic — API developer experience** (`docs/APIMATIC.md`). The backend's
-  real OpenAPI spec (tagged by domain: agents, tasks, transactions, policies,
-  audit, schedules) is exported to `docs/openapi.json` and documented as the
-  input to APIMatic's SDK generation and developer-portal tooling, so a third
-  party can integrate with AgentAuth's policy/transaction API without
-  hand-rolling an HTTP client.
+- **APIMatic — the PayPal integration itself** (`docs/APIMATIC.md`). The
+  PayPal client (`backend/app/paypal/`) was migrated off a hand-rolled OAuth2
+  + httpx REST client onto PayPal's own official, APIMatic-generated Server
+  SDK (`paypal-server-sdk`), installed and built against using APIMatic's
+  Context Plugin — the mechanism that feeds a coding agent the SDK's real,
+  grounded facts instead of letting it guess PayPal's API from training
+  data. Live-testing the migration against real Sandbox immediately caught
+  a genuine requirement (`PayPal-Request-Id`) the old client had silently
+  missed. See `docs/APIMATIC.md` for the full trail, including the dead end
+  in the hackathon slide's example repo and the real one that replaced it.
 - **Render — deployment configuration** (`render.yaml`, `docker-compose.yml`).
   Config only: this project was not deployed to a live Render account from
   this environment. The blueprint and compose files describe exactly how it
@@ -153,7 +157,7 @@ agentauth/
 ├── frontend/           Next.js 15 app (dashboard, agents, ledger, schedule,
 │                       policies, audit, etc.)
 ├── docs/
-│   ├── APIMATIC.md     How the real OpenAPI spec maps to APIMatic SDK/portal generation
+│   ├── APIMATIC.md     How the PayPal client was rebuilt on PayPal's official APIMatic-generated SDK
 │   └── openapi.json    The live OpenAPI spec, pulled from the running backend
 ├── .env.example
 ├── docker-compose.yml  Local multi-container topology (+ optional separate worker profile)
