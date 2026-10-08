@@ -1,0 +1,137 @@
+export type Decision = "ALLOW" | "APPROVAL_REQUIRED" | "BLOCK" | null;
+
+export type TransactionState =
+  | "CREATED"
+  | "RESEARCHING"
+  | "PROPOSED"
+  | "POLICY_CHECK"
+  | "BLOCKED"
+  | "AWAITING_APPROVAL"
+  | "AUTHORIZED"
+  | "VERIFYING"
+  | "CAPTURED"
+  | "VOIDED"
+  | "COMPLETED"
+  | "FAILED";
+
+export interface Policy {
+  id: string;
+  agent_id: string;
+  max_transaction_amount: number;
+  approval_threshold: number;
+  daily_limit: number;
+  monthly_limit: number;
+  velocity_max_transactions: number;
+  velocity_window_minutes: number;
+  price_variance_tolerance: number;
+  blocked_categories: string[];
+  allowed_categories: string[];
+  active: number;
+  created_at: string;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  purpose: string;
+  directive: string;
+  status: string;
+  created_at: string;
+  policy: Policy | null;
+  daily_spent: number;
+  monthly_spent: number;
+  daily_remaining: number | null;
+  monthly_remaining: number | null;
+  transactions?: Transaction[];
+  activity?: ActivityEvent[];
+}
+
+export interface Transaction {
+  id: string;
+  task_id: string | null;
+  agent_id: string;
+  merchant: string | null;
+  amount: number | null;
+  currency: string | null;
+  category: string | null;
+  reason: string | null;
+  source_url: string | null;
+  state: TransactionState;
+  decision: Decision;
+  decision_reason: string | null;
+  authorized_amount: number | null;
+  expected_amount: number | null;
+  actual_amount: number | null;
+  remaining_daily_budget: number | null;
+  remaining_monthly_budget: number | null;
+  paypal_order_id: string | null;
+  paypal_authorization_id: string | null;
+  paypal_capture_id: string | null;
+  paypal_status: string | null;
+  paypal_approve_url: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  timeline?: AuditRecord[];
+}
+
+export interface ActivityEvent {
+  id: string;
+  task_id: string | null;
+  transaction_id: string | null;
+  agent_id: string | null;
+  event_type: string;
+  message: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AuditRecord {
+  id: string;
+  seq: number;
+  transaction_id: string | null;
+  task_id: string | null;
+  agent_id: string | null;
+  event_type: string;
+  payload: Record<string, unknown>;
+  prev_hash: string;
+  hash: string;
+  created_at: string;
+}
+
+export interface Task {
+  id: string;
+  agent_id: string;
+  prompt: string;
+  max_amount: number | null;
+  status: string;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  transactions?: Transaction[];
+  activity?: ActivityEvent[];
+}
+
+export interface DashboardSummary {
+  active_agents: number;
+  total_agents: number;
+  spent_today: number;
+  remaining_today: number;
+  awaiting_approval: number;
+  completed_today: number;
+  blocked_count: number;
+  total_transactions: number;
+}
+
+export interface PolicyDraft {
+  agent_name: string;
+  agent_purpose: string;
+  max_transaction_amount: number;
+  approval_threshold: number;
+  daily_limit: number;
+  monthly_limit: number;
+  velocity: { max_transactions: number; window_minutes: number };
+  price_variance_tolerance: number;
+  blocked_categories: string[];
+  allowed_categories: string[];
+}

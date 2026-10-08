@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PAYPAL_CLIENT_ID=${PAYPAL_CLIENT_ID}
+      - PAYPAL_CLIENT_SECRET=${PAYPAL_CLIENT_SECRET}
+      - PAYPAL_ENVIRONMENT=${PAYPAL_ENVIRONMENT:-sandbox}
+      - PAYPAL_TEST_CARD_NUMBER=${PAYPAL_TEST_CARD_NUMBER:-}
+      - PAYPAL_TEST_CARD_EXPIRY=${PAYPAL_TEST_CARD_EXPIRY:-}
+      - PAYPAL_TEST_CARD_CVV=${PAYPAL_TEST_CARD_CVV:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-openai/gpt-4o-mini}
+      - DATABASE_URL=sqlite:////data/agentauth.db
+      - AUDIT_HMAC_SECRET=${AUDIT_HMAC_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+    volumes:
+      - agentauth_data:/data
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - BACKEND_INTERNAL_URL=http://backend:8000
+    depends_on:
+      - backend
+
+volumes:
+  agentauth_data:

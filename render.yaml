@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: agentauth-backend
+    env: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_ENVIRONMENT
+        value: sandbox
+      - key: PAYPAL_TEST_CARD_NUMBER
+        sync: false
+      - key: PAYPAL_TEST_CARD_EXPIRY
+        sync: false
+      - key: PAYPAL_TEST_CARD_CVV
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-4o-mini
+      - key: DATABASE_URL
+        value: sqlite:////var/data/agentauth.db
+      - key: AUDIT_HMAC_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://agentauth-frontend.onrender.com
+    disk:
+      name: agentauth-data
+      mountPath: /var/data
+      sizeGB: 1
+
+  - type: web
+    name: agentauth-frontend
+    env: node
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm start -- -p $PORT -H 0.0.0.0
+    envVars:
+      - key: BACKEND_INTERNAL_URL
+        value: https://agentauth-backend.onrender.com
