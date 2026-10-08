@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { TopBar } from "@/components/nav/TopBar";
-import { LedgerGrid } from "@/components/ledger/LedgerGrid";
+import { OperationsConsoleGrid } from "@/components/ledger/OperationsConsoleGrid";
 import { api, ApiError } from "@/lib/api";
 import { Transaction, Agent } from "@/lib/types";
 
@@ -32,14 +32,17 @@ export default function LedgerPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <TopBar title="Commerce Ledger" subtitle="Every real transaction your agents have proposed, authorized, or been denied." />
+      <TopBar
+        title="Commerce Ledger — Agent Operations Console"
+        subtitle="Every real research → proposal → policy → approval → PayPal → audit pipeline, live from the backend."
+      />
       <main className="flex-1 space-y-6 px-5 py-6 md:px-8">
         {error && (
           <div className="card-surface border-l-4 border-l-[var(--color-danger)] p-4 text-sm text-[var(--color-danger)]">
             {error}
           </div>
         )}
-        <LedgerGrid transactions={transactions} agents={agents} />
+        <OperationsConsoleGrid transactions={transactions} agents={agents} />
       </main>
     </div>
   );
