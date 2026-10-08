@@ -140,3 +140,21 @@ export interface PolicyDraft {
   blocked_categories: string[];
   allowed_categories: string[];
 }
+
+export type Recurrence = "ONCE" | "DAILY" | "WEEKLY" | "MONTHLY";
+export type ScheduleStatus = "ACTIVE" | "PAUSED" | "CANCELLED" | "COMPLETED";
+
+export interface ScheduledTask {
+  id: string;
+  agent_id: string;
+  prompt: string;
+  max_amount: number | null;
+  recurrence: Recurrence;
+  start_at: string;
+  next_run_at: string;
+  last_run_at: string | null;
+  last_task_id: string | null;
+  status: ScheduleStatus;
+  created_at: string;
+  updated_at: string;
+}

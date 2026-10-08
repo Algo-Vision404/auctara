@@ -6,6 +6,8 @@ import type {
   Task,
   Transaction,
   AuditRecord,
+  ScheduledTask,
+  Recurrence,
 } from "./types";
 
 export class ApiError extends Error {
@@ -89,6 +91,14 @@ export const api = {
     return request<AuditRecord[]>(`/audit${qs ? `?${qs}` : ""}`);
   },
   verifyAudit: () => request<{ valid: boolean; records_verified?: number; broken_at_seq?: number }>("/audit/verify"),
+
+  listSchedules: (agentId?: string) =>
+    request<ScheduledTask[]>(`/schedules${agentId ? `?agent_id=${agentId}` : ""}`),
+  createSchedule: (payload: { agent_id: string; prompt: string; max_amount?: number | null; recurrence: Recurrence; start_at?: string }) =>
+    request<ScheduledTask>("/schedules", { method: "POST", body: JSON.stringify(payload) }),
+  updateSchedule: (id: string, payload: { status: "ACTIVE" | "PAUSED" | "CANCELLED" }) =>
+    request<ScheduledTask>(`/schedules/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteSchedule: (id: string) => request<{ deleted: boolean }>(`/schedules/${id}`, { method: "DELETE" }),
 };
 
 export interface StreamEvent {
