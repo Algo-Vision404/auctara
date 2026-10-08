@@ -17,20 +17,37 @@ export function BlockedCard({ tx, agent }: { tx: Transaction; agent: Agent | nul
       <div className="space-y-4 px-6 py-5">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Reason</p>
+          {/* decision_reason is the deterministic engine's own, specific explanation
+              (the exact category, limit, or velocity rule that fired, or the human's
+              rejection note). It is never paraphrased or replaced with a generic
+              policy fact here, since the actual rule that blocked this transaction
+              can be any one of several, not always the same one. */}
           <p className="mt-1 text-sm text-[var(--color-text)]">{tx.decision_reason}</p>
         </div>
         {agent?.policy && (
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Policy</p>
-            <p className="mt-1 font-mono-ui text-sm text-[var(--color-text)]">
-              Maximum transaction amount: {money(agent.policy.max_transaction_amount)}
-            </p>
+          <div className="grid grid-cols-2 gap-3 border-t border-[var(--color-border)] pt-4 text-sm sm:grid-cols-4">
+            <PolicyFact label="Max / txn" value={money(agent.policy.max_transaction_amount)} />
+            <PolicyFact label="Daily limit" value={money(agent.policy.daily_limit)} />
+            <PolicyFact label="Monthly limit" value={money(agent.policy.monthly_limit)} />
+            <PolicyFact
+              label="Velocity"
+              value={`${agent.policy.velocity_max_transactions} / ${agent.policy.velocity_window_minutes}min`}
+            />
           </div>
         )}
         <div className="rounded-xl bg-[var(--color-surface-2)] px-4 py-3 text-sm font-medium text-[var(--color-text-secondary)]">
           No PayPal transaction was captured.
         </div>
       </div>
+    </div>
+  );
+}
+
+function PolicyFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[11px] uppercase tracking-wide text-[var(--color-text-muted)]">{label}</p>
+      <p className="font-mono-ui font-semibold">{value}</p>
     </div>
   );
 }

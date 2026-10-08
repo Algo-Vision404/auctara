@@ -245,15 +245,29 @@ def add_activity(agent_id: str | None, task_id: str | None, transaction_id: str 
     return d
 
 
-def list_activity(task_id: str | None = None, limit: int = 100) -> list[dict]:
+def list_activity(task_id: str | None = None, limit: int = 100, order: str = "desc") -> list[dict]:
+    """Real activity events, optionally scoped to one task.
+
+    `order="desc"` (the default) is most-recent-first and respects `limit`;
+    this is what powers a live feed that prepends new events as they arrive.
+    `order="asc"` returns the full, unlimited chronological history for a
+    task, oldest first, for a top-to-bottom timeline reading.
+    """
     conn = get_connection()
+    direction = "ASC" if order == "asc" else "DESC"
     if task_id:
-        rows = conn.execute(
-            "SELECT * FROM activity_events WHERE task_id=? ORDER BY created_at ASC", (task_id,)
-        ).fetchall()
+        if order == "asc":
+            rows = conn.execute(
+                f"SELECT * FROM activity_events WHERE task_id=? ORDER BY created_at {direction}", (task_id,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"SELECT * FROM activity_events WHERE task_id=? ORDER BY created_at {direction} LIMIT ?",
+                (task_id, limit),
+            ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM activity_events ORDER BY created_at DESC LIMIT ?", (limit,)
+            f"SELECT * FROM activity_events ORDER BY created_at {direction} LIMIT ?", (limit,)
         ).fetchall()
     out = []
     for r in rows:

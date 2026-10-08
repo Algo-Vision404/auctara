@@ -19,6 +19,7 @@ export default function LedgerPage() {
           if (!mounted) return;
           setTransactions(t);
           setAgents(a);
+          setError(null);
         })
         .catch((e) => mounted && setError(e instanceof ApiError ? e.message : "Failed to load ledger"));
     };

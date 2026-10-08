@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { Transaction } from "@/lib/types";
 import { money, titleCase } from "@/lib/format";
-import { ArrowUpRight, Store, Tag, FileText, PackageSearch } from "lucide-react";
+import { ArrowUpRight, Store, Tag, FileText, PackageSearch, ImageOff } from "lucide-react";
 
 export function ProposalSummary({ tx }: { tx: Transaction }) {
+  const [imageFailed, setImageFailed] = useState(false);
   if (!tx.merchant) return null;
   return (
     <div className="card-surface space-y-4 p-6">
@@ -17,14 +19,19 @@ export function ProposalSummary({ tx }: { tx: Transaction }) {
         )}
       </div>
       <div className="flex gap-4">
-        {tx.image_url && (
+        {tx.image_url && !imageFailed ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={tx.image_url}
             alt={tx.merchant}
+            onError={() => setImageFailed(true)}
             className="h-20 w-20 flex-shrink-0 rounded-lg border border-[var(--color-border)] object-contain bg-[var(--color-surface-2)]"
           />
-        )}
+        ) : tx.image_url ? (
+          <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-text-muted)]">
+            <ImageOff size={20} />
+          </div>
+        ) : null}
         <div className="min-w-0 space-y-1">
           <h3 className="truncate font-sans text-lg font-semibold">{tx.merchant}</h3>
           <p className="font-mono-ui text-3xl font-semibold tracking-tight">

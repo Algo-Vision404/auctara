@@ -68,7 +68,8 @@ export const api = {
   createTask: (payload: { agent_id: string; prompt: string; max_amount?: number | null }) =>
     request<Task>("/tasks", { method: "POST", body: JSON.stringify(payload) }),
 
-  recentActivity: (limit = 50) => request(`/activity?limit=${limit}`),
+  recentActivity: (limit = 50, taskId?: string) =>
+    request(`/activity?limit=${limit}${taskId ? `&task_id=${taskId}` : ""}`),
 
   listTransactions: (params?: { agent_id?: string; state?: string; decision?: string }) => {
     const qs = new URLSearchParams(params as Record<string, string>).toString();

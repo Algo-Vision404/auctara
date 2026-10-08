@@ -65,6 +65,16 @@ export default function NewAgentPage() {
     setDraft((d) => (d ? { ...d, [key]: value } : d));
   }
 
+  // The backend rejects a negative, zero, or missing policy value outright
+  // (max_transaction_amount must be greater than zero, the rest zero or
+  // greater), but it should never be possible to even press Activate with
+  // one: catch it here too so the mistake is obvious before the round trip.
+  const hasInvalidPolicyValue =
+    !!draft &&
+    (!Number.isFinite(draft.max_transaction_amount) ||
+      draft.max_transaction_amount <= 0 ||
+      [draft.approval_threshold, draft.daily_limit, draft.monthly_limit].some((v) => !Number.isFinite(v) || v < 0));
+
   return (
     <div className="flex flex-1 flex-col">
       <TopBar title="Create an Agent" subtitle="Natural language → explicit financial authority." />
@@ -164,7 +174,18 @@ export default function NewAgentPage() {
               </span>
             </div>
 
-            <Button variant="primary" fullWidth onClick={handleActivate} loading={activating}>
+            {hasInvalidPolicyValue && (
+              <p className="text-sm text-[var(--color-danger)]">
+                Policy amounts must be zero or greater before this agent can be activated.
+              </p>
+            )}
+            <Button
+              variant="primary"
+              fullWidth
+              onClick={handleActivate}
+              loading={activating}
+              disabled={hasInvalidPolicyValue}
+            >
               Activate Agent <ArrowRight size={18} />
             </Button>
           </div>
@@ -218,8 +239,10 @@ function PolicyStat({
         <span className="font-mono-ui text-sm text-[var(--color-text-muted)]">$</span>
         <input
           type="number"
+          min="0"
+          step="0.01"
           value={value}
-          onChange={(e) => onChange(Number(e.target.value))}
+          onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
           className="w-full bg-transparent font-mono-ui text-lg font-semibold text-[var(--color-text)] outline-none"
         />
       </div>

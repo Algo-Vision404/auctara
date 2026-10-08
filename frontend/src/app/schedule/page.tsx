@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { api, ApiError } from "@/lib/api";
 import { Agent, Recurrence, ScheduledTask } from "@/lib/types";
-import { fullDateTime, titleCase } from "@/lib/format";
+import { fullDateTime, money, titleCase } from "@/lib/format";
 import { CalendarClock, Pause, Play, Ban, Trash2, ArrowRight, Loader2, CircleCheck } from "lucide-react";
 
 // The Bryntum widget touches `document` on import, so it must never run
@@ -251,7 +251,7 @@ export default function SchedulePage() {
                       <span className="font-semibold">{agentName(s.agent_id)}</span>
                       <Badge tone={statusTone(s.status)}>{titleCase(s.status)}</Badge>
                       <Badge tone="muted">{titleCase(s.recurrence)}</Badge>
-                      {s.max_amount != null && <Badge tone="muted">cap ${s.max_amount}</Badge>}
+                      {s.max_amount != null && <Badge tone="muted">cap {money(s.max_amount)}</Badge>}
                     </div>
                     <p className="mt-1 truncate text-sm text-[var(--color-text-secondary)]">{s.prompt}</p>
                     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-text-muted)]">

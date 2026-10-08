@@ -27,12 +27,15 @@ export default function TransactionDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [confirmingPaypal, setConfirmingPaypal] = useState(false);
   const continuedRef = useRef(false);
+  const txStateRef = useRef<string | null>(null);
 
   const load = useCallback(() => {
     api
       .getTransaction(id)
       .then(async (t) => {
         setTx(t);
+        txStateRef.current = t.state;
+        setError(null);
         if (!agent || agent.id !== t.agent_id) {
           try {
             setAgent(await api.getAgent(t.agent_id));
@@ -41,13 +44,25 @@ export default function TransactionDetailPage() {
           }
         }
       })
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to load transaction"));
+      .catch((e) => {
+        // Only block the whole page before the transaction has ever loaded.
+        // Once it is showing, a single failed background poll should not
+        // discard the live view; surface it as a non-blocking banner instead.
+        setError(e instanceof ApiError ? e.message : "Failed to load transaction");
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
     load();
     const i = setInterval(() => {
+      // Stop polling once the transaction has reached a terminal state:
+      // nothing more will ever change, so there is no real event left to
+      // discover by continuing to hit the backend every 2 seconds.
+      if (txStateRef.current && TERMINAL_STATES.has(txStateRef.current)) {
+        clearInterval(i);
+        return;
+      }
       load();
     }, 2000);
     return () => clearInterval(i);
@@ -77,7 +92,7 @@ export default function TransactionDetailPage() {
     load();
   }
 
-  if (error) {
+  if (error && !tx) {
     return (
       <div className="flex flex-1 flex-col">
         <TopBar title="Transaction" />
@@ -108,6 +123,11 @@ export default function TransactionDetailPage() {
     <div className="flex flex-1 flex-col">
       <TopBar title={`Transaction ${id.replace("tx_", "#").toUpperCase()}`} subtitle={fullDateTime(tx.created_at)} />
       <main className="mx-auto w-full max-w-5xl flex-1 space-y-6 px-5 py-6 md:px-8">
+        {error && (
+          <div className="card-surface border-l-4 border-l-[var(--color-warning)] p-4 text-sm text-[var(--color-warning)]">
+            {error} Showing the last data AgentAuth successfully loaded.
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <Badge tone={stateTone(tx.state)}>{titleCase(tx.state)}</Badge>
           {tx.decision && <Badge tone="accent">{titleCase(tx.decision)}</Badge>}

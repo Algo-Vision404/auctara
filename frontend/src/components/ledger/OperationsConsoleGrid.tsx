@@ -86,12 +86,18 @@ const ALL_COLUMNS = [
 const DEFAULT_HIDDEN = new Set(["task_prompt", "paypal_order_id", "paypal_capture_id", "id"]);
 
 function MerchantCell(p: ICellRendererParams<ConsoleRow>) {
+  const [imageFailed, setImageFailed] = useState(false);
   if (!p.data) return null;
   return (
     <div className="flex h-full items-center gap-2">
-      {p.data.image_url ? (
+      {p.data.image_url && !imageFailed ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={p.data.image_url} alt="" className="h-6 w-6 rounded object-contain bg-[var(--color-surface-2)]" />
+        <img
+          src={p.data.image_url}
+          alt=""
+          onError={() => setImageFailed(true)}
+          className="h-6 w-6 rounded object-contain bg-[var(--color-surface-2)]"
+        />
       ) : p.data.channel3_product_id ? (
         <PackageSearch size={14} className="text-[var(--color-text-muted)]" />
       ) : null}

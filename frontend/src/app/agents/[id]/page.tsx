@@ -25,8 +25,17 @@ export default function AgentDetailPage() {
   function load() {
     api
       .getAgent(id)
-      .then(setAgent)
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to load agent"));
+      .then((a) => {
+        setAgent(a);
+        setError(null);
+      })
+      .catch((e) => {
+        // Only block the whole page on an error before we have ever loaded
+        // this agent. Once it is showing, a single failed background poll
+        // (a brief network blip, a backend restart) should not discard the
+        // last known-good view; surface it as a non-blocking banner instead.
+        setError(e instanceof ApiError ? e.message : "Failed to load agent");
+      });
   }
 
   useEffect(() => {
@@ -54,7 +63,7 @@ export default function AgentDetailPage() {
     }
   }
 
-  if (error) {
+  if (error && !agent) {
     return (
       <div className="flex flex-1 flex-col">
         <TopBar title="Agent" />
@@ -84,6 +93,11 @@ export default function AgentDetailPage() {
     <div className="flex flex-1 flex-col">
       <TopBar title={agent.name} subtitle={agent.purpose} />
       <main className="flex-1 space-y-6 px-5 py-6 md:px-8">
+        {error && (
+          <div className="card-surface border-l-4 border-l-[var(--color-warning)] p-4 text-sm text-[var(--color-warning)]">
+            {error} Showing the last data AgentAuth successfully loaded.
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
           <div className="space-y-6 lg:col-span-3">
             <div className="card-surface space-y-4 p-6">

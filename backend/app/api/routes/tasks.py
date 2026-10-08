@@ -64,7 +64,7 @@ def get_task(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     transactions = [t for t in models.list_transactions(task["agent_id"]) if t["task_id"] == task_id]
-    activity = models.list_activity(task_id=task_id)
+    activity = models.list_activity(task_id=task_id, order="asc")
     return {**task, "transactions": transactions, "activity": activity}
 
 
@@ -74,8 +74,11 @@ async def task_events(task_id: str):
 
 
 @router.get("/activity")
-def recent_activity(limit: int = 50):
-    return models.list_activity(limit=limit)
+def recent_activity(limit: int = 50, task_id: str | None = None):
+    # task_id scopes this to one task's own events (most-recent-first), so a
+    # task execution view never shows other agents' unrelated activity while
+    # waiting for its own live events to start arriving over SSE.
+    return models.list_activity(task_id=task_id, limit=limit)
 
 
 @router.get("/activity/stream")

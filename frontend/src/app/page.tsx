@@ -10,12 +10,14 @@ import { api, ApiError } from "@/lib/api";
 import { Agent, DashboardSummary } from "@/lib/types";
 import { Bot, CircleDollarSign, WalletCards, Clock3, Plus, ArrowUpRight } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { money, titleCase } from "@/lib/format";
 
 export default function OverviewPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let mounted = true;
@@ -26,8 +28,13 @@ export default function OverviewPage() {
           setSummary(s);
           setAgents(a);
           setError(null);
+          setLoading(false);
         })
-        .catch((e) => mounted && setError(e instanceof ApiError ? e.message : "Failed to load dashboard"));
+        .catch((e) => {
+          if (!mounted) return;
+          setError(e instanceof ApiError ? e.message : "Failed to load dashboard");
+          setLoading(false);
+        });
     };
     load();
     const id = setInterval(load, 8000);
@@ -53,7 +60,13 @@ export default function OverviewPage() {
               Your agents are working
             </p>
             <h2 className="mt-1 font-sans text-2xl font-semibold tracking-tight">
-              {summary?.active_agents ?? "N/A"} Active Agent{summary?.active_agents === 1 ? "" : "s"}
+              {loading ? (
+                <Skeleton className="inline-block h-7 w-40 align-middle" />
+              ) : (
+                <>
+                  {summary?.active_agents ?? 0} Active Agent{summary?.active_agents === 1 ? "" : "s"}
+                </>
+              )}
             </h2>
             <p className="mt-1 max-w-md text-sm text-[var(--color-text-secondary)]">
               Every purchase they propose is checked by your deterministic policy engine before PayPal ever
@@ -70,23 +83,23 @@ export default function OverviewPage() {
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
             label="Active Agents"
-            value={summary?.active_agents ?? "N/A"}
+            value={loading ? <Skeleton className="h-8 w-12" /> : (summary?.active_agents ?? 0)}
             icon={<Bot size={16} />}
             tone="accent"
           />
           <StatCard
             label="Spent Today"
-            value={summary ? money(summary.spent_today) : "N/A"}
+            value={loading ? <Skeleton className="h-8 w-20" /> : money(summary?.spent_today ?? 0)}
             icon={<CircleDollarSign size={16} />}
           />
           <StatCard
             label="Remaining Today"
-            value={summary ? money(summary.remaining_today) : "N/A"}
+            value={loading ? <Skeleton className="h-8 w-20" /> : money(summary?.remaining_today ?? 0)}
             icon={<WalletCards size={16} />}
           />
           <StatCard
             label="Awaiting Approval"
-            value={summary?.awaiting_approval ?? "N/A"}
+            value={loading ? <Skeleton className="h-8 w-12" /> : (summary?.awaiting_approval ?? 0)}
             icon={<Clock3 size={16} />}
             tone="warning"
           />
@@ -102,7 +115,14 @@ export default function OverviewPage() {
                 </Link>
               </div>
               <div className="space-y-2">
-                {agents.length === 0 && (
+                {loading && (
+                  <div className="space-y-2">
+                    {[0, 1, 2].map((i) => (
+                      <Skeleton key={i} className="h-14 w-full" />
+                    ))}
+                  </div>
+                )}
+                {!loading && agents.length === 0 && (
                   <p className="py-6 text-center text-sm text-[var(--color-text-muted)]">
                     No agents yet. Create one to delegate your first task.
                   </p>

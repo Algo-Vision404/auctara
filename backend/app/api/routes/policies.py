@@ -36,13 +36,23 @@ def get_policy(agent_id: str):
     return policy
 
 
+class VelocityPayload(BaseModel):
+    # window_start_iso(minutes) computes now minus this many minutes. A zero
+    # or negative value pushes that window into the present or future, so
+    # the "transactions in window" count comes back as zero no matter how
+    # many transactions actually happened, silently turning off velocity
+    # limiting instead of failing safe. Both fields must stay positive.
+    max_transactions: int = Field(gt=0)
+    window_minutes: int = Field(gt=0)
+
+
 class UpdatePolicyRequest(BaseModel):
-    max_transaction_amount: float
-    approval_threshold: float
-    daily_limit: float
-    monthly_limit: float
-    velocity: dict = Field(default_factory=lambda: {"max_transactions": 5, "window_minutes": 60})
-    price_variance_tolerance: float = 0.05
+    max_transaction_amount: float = Field(gt=0)
+    approval_threshold: float = Field(ge=0)
+    daily_limit: float = Field(ge=0)
+    monthly_limit: float = Field(ge=0)
+    velocity: VelocityPayload = Field(default_factory=lambda: VelocityPayload(max_transactions=5, window_minutes=60))
+    price_variance_tolerance: float = Field(default=0.05, ge=0)
     blocked_categories: list[str] = Field(default_factory=list)
     allowed_categories: list[str] = Field(default_factory=list)
 

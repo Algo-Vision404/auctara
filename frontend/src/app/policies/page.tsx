@@ -116,6 +116,8 @@ function PolicySandbox({ agents }: { agents: Agent[] }) {
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           type="number"
+          min="0.01"
+          step="0.01"
           placeholder="Amount"
           className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-sm"
         />
@@ -159,6 +161,21 @@ function PolicyEditor({ agent }: { agent: Agent }) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // The backend rejects these outright, but a negative or zero velocity
+  // window is worse than a normal rejected value: window_start_iso(minutes)
+  // computes "now minus minutes", so a zero or negative window_minutes
+  // pushes that window into the present or future and the velocity check
+  // silently stops limiting anything instead of failing safe. Block it here
+  // before the request round trip, same as the max transaction/limit fields.
+  const hasInvalidPolicyValue =
+    !Number.isFinite(form.max_transaction_amount) ||
+    form.max_transaction_amount <= 0 ||
+    [form.approval_threshold, form.daily_limit, form.monthly_limit].some((v) => !Number.isFinite(v) || v < 0) ||
+    !Number.isFinite(form.velocity_max_transactions) ||
+    form.velocity_max_transactions <= 0 ||
+    !Number.isFinite(form.velocity_window_minutes) ||
+    form.velocity_window_minutes <= 0;
+
   async function save() {
     setSaving(true);
     setError(null);
@@ -196,18 +213,63 @@ function PolicyEditor({ agent }: { agent: Agent }) {
           label="Autonomous authority"
           value={form.approval_threshold}
           onChange={(v) => setForm({ ...form, approval_threshold: v })}
+          min={0}
         />
         <NumField
           label="Max transaction"
           value={form.max_transaction_amount}
           onChange={(v) => setForm({ ...form, max_transaction_amount: v })}
+          min={0}
         />
-        <NumField label="Daily limit" value={form.daily_limit} onChange={(v) => setForm({ ...form, daily_limit: v })} />
+        <NumField
+          label="Daily limit"
+          value={form.daily_limit}
+          onChange={(v) => setForm({ ...form, daily_limit: v })}
+          min={0}
+        />
         <NumField
           label="Monthly limit"
           value={form.monthly_limit}
           onChange={(v) => setForm({ ...form, monthly_limit: v })}
+          min={0}
         />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <NumField
+          label="Velocity: max transactions"
+          value={form.velocity_max_transactions}
+          onChange={(v) => setForm({ ...form, velocity_max_transactions: v })}
+          prefix={null}
+          min={1}
+        />
+        <NumField
+          label="Velocity window (minutes)"
+          value={form.velocity_window_minutes}
+          onChange={(v) => setForm({ ...form, velocity_window_minutes: v })}
+          prefix={null}
+          min={1}
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+          Price variance tolerance
+        </label>
+        <div className="flex items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2">
+          <input
+            type="number"
+            step="0.5"
+            min="0"
+            max="100"
+            value={Math.round(form.price_variance_tolerance * 1000) / 10}
+            onChange={(e) => setForm({ ...form, price_variance_tolerance: Number(e.target.value) / 100 })}
+            className="w-full bg-transparent font-mono-ui text-sm font-semibold outline-none"
+          />
+          <span className="font-mono-ui text-sm text-[var(--color-text-muted)]">%</span>
+        </div>
+        <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+          How far PayPal&apos;s confirmed price may drift from the proposed price before AgentAuth voids the
+          payment instead of capturing it.
+        </p>
       </div>
       <div>
         <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
@@ -221,8 +283,25 @@ function PolicyEditor({ agent }: { agent: Agent }) {
           }
         />
       </div>
+      <div>
+        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+          Allowed categories (optional allowlist, leave blank to allow any non-blocked category)
+        </label>
+        <input
+          className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-sm"
+          defaultValue={form.allowed_categories.join(", ")}
+          onChange={(e) =>
+            setForm({ ...form, allowed_categories: e.target.value.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean) })
+          }
+        />
+      </div>
+      {hasInvalidPolicyValue && (
+        <p className="text-sm text-[var(--color-danger)]">
+          Max transaction and both velocity fields must be greater than zero; the rest must be zero or greater.
+        </p>
+      )}
       {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
-      <Button variant="primary" onClick={save} loading={saving}>
+      <Button variant="primary" onClick={save} loading={saving} disabled={hasInvalidPolicyValue}>
         {saved ? "Saved" : <>
           <Save size={16} /> Save Policy
         </>}
@@ -231,18 +310,31 @@ function PolicyEditor({ agent }: { agent: Agent }) {
   );
 }
 
-function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function NumField({
+  label,
+  value,
+  onChange,
+  prefix = "$",
+  min,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  prefix?: string | null;
+  min?: number;
+}) {
   return (
     <div>
       <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
         {label}
       </label>
       <div className="flex items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2">
-        <span className="font-mono-ui text-sm text-[var(--color-text-muted)]">$</span>
+        {prefix && <span className="font-mono-ui text-sm text-[var(--color-text-muted)]">{prefix}</span>}
         <input
           type="number"
+          min={min}
           value={value}
-          onChange={(e) => onChange(Number(e.target.value))}
+          onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
           className="w-full bg-transparent font-mono-ui text-sm font-semibold outline-none"
         />
       </div>

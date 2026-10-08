@@ -13,8 +13,10 @@ export function ActivityFeed({ taskId, limit = 30 }: { taskId?: string; limit?: 
 
   useEffect(() => {
     let mounted = true;
+    // Scoped to taskId when given, so a task execution view only ever shows
+    // that task's own history, never unrelated activity from other agents.
     api
-      .recentActivity(limit)
+      .recentActivity(limit, taskId)
       .then((data) => mounted && setEvents(data as ActivityEvent[]))
       .catch(() => {});
 
