@@ -1,5 +1,5 @@
 """PayPal client: built on PayPal's own official, APIMatic-generated
-`paypal-server-sdk` (import package `paypalserversdk`) — not a hand-rolled
+`paypal-server-sdk` (import package `paypalserversdk`), not a hand-rolled
 OAuth2 + httpx integration.
 
 The SDK (not this module) owns the OAuth2 client-credentials token fetch,
@@ -18,7 +18,7 @@ module is a thin wrapper that:
     so this round-trips losslessly), so the rest of the codebase keeps
     working with plain dicts
 
-No transaction result is ever synthesized here — every call either returns
+No transaction result is ever synthesized here. Every call either returns
 PayPal's real response or raises PayPalError with the real detail attached.
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ from paypalserversdk.paypal_serversdk_client import PaypalServersdkClient
 from app.config import get_settings
 
 # Every exception type a call through the SDK can raise that represents a
-# real interaction with (or failure to reach) PayPal — see the SDK's own
+# real interaction with (or failure to reach) PayPal. See the SDK's own
 # python-error-handling guidance: ApiException (and typed subclasses) for
 # non-2xx responses, AuthValidationException for credentials the auth
 # scheme itself rejects before a request is even sent, and the underlying
@@ -94,7 +94,7 @@ def to_wire_dict(obj: Any) -> Any:
     back into the plain nested dict PayPal's raw JSON uses, via each
     model's own `_names` map (python-attribute -> wire key). PayPal's API is
     already snake_case end to end, so every generated `_names` map on this
-    SDK is an identity map — this is a lossless round trip, not a guess."""
+    SDK is an identity map, so this is a lossless round trip, not a guess."""
     if obj is None or isinstance(obj, (str, int, float, bool)):
         return obj
     if isinstance(obj, (list, tuple)):
@@ -135,7 +135,7 @@ _client_singleton: Optional[PaypalServersdkClient] = None
 
 def get_paypal_client() -> PaypalServersdkClient:
     """Return the shared SDK client. Built once and reused for the process
-    lifetime — the SDK's own client-initialization guidance: a fresh client
+    lifetime: the SDK's own client-initialization guidance says a fresh client
     per call discards connection pooling and the cached OAuth2 token."""
     global _client_singleton
     if _client_singleton is None:

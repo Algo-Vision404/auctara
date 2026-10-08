@@ -4,7 +4,7 @@ through PayPal's official `paypal-server-sdk`).
 
 Responses are built with the SDK's own model classes (`Order.from_dictionary`,
 etc.) from plain PayPal-shaped JSON, so these tests also exercise the real
-`to_wire_dict` unwrapper in app.paypal.client — not just orders.py's own
+`to_wire_dict` unwrapper in app.paypal.client, not just orders.py's own
 summarizing logic.
 """
 import pytest
@@ -169,7 +169,7 @@ async def test_void_authorization(monkeypatch):
 @pytest.mark.asyncio
 async def test_create_order_translates_api_exception(monkeypatch):
     """A real PayPal error (e.g. a malformed request) must surface as our own
-    PayPalError, with PayPal's actual error detail attached — never silently
+    PayPalError, with PayPal's actual error detail attached. Never silently
     swallowed or turned into a fake success."""
     error_body = '{"name": "INVALID_REQUEST", "message": "Amount mismatch", "debug_id": "abc123"}'
 

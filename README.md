@@ -6,9 +6,9 @@
 
 ## What is AgentAuth?
 
-AgentAuth lets you delegate a real purchasing task to an AI agent — "find the
-cheapest annual project-management software for my team and buy it if it's
-under $80" — while keeping every dollar of authority under deterministic,
+AgentAuth lets you delegate a real purchasing task to an AI agent, such as
+"find the cheapest annual project-management software for my team and buy it
+if it's under $80," while keeping every dollar of authority under deterministic,
 backend-enforced policy. The agent can research the live web, compare real
 merchants and prices, and draft a purchase proposal. It can never authorize
 that proposal itself. Every transaction is independently evaluated by a
@@ -64,7 +64,7 @@ HMAC-chained Audit Trail
 ```
 
 The LLM is advisory. The policy engine is authoritative. The frontend never
-decides a financial outcome — it only renders what the backend already
+decides a financial outcome. It only renders what the backend already
 decided.
 
 ## Zero mock data
@@ -72,7 +72,7 @@ decided.
 Every number in the UI comes from a real backend operation:
 
 - Web research uses the live `ddgs` (DuckDuckGo) search API. If it fails, the
-  UI shows `SEARCH_FAILED` and the task fails — it never substitutes a fake
+  UI shows `SEARCH_FAILED` and the task fails. It never substitutes a fake
   merchant.
 - AI reasoning calls OpenRouter with the model set by `OPENROUTER_MODEL`.
 - Exchange rates come from `https://open.er-api.com/v6/latest/USD`, fetched
@@ -83,7 +83,7 @@ Every number in the UI comes from a real backend operation:
 - All dashboard numbers, activity events, and audit records are read from
   SQLite rows written by the above real operations.
 - Product discovery (Channel3) returns real merchants, prices, and product
-  images, or a real, visible failure — never a hard-coded fallback item.
+  images, or a real, visible failure. It never returns a hard-coded fallback item.
 - Scheduled/recurring tasks (the Agent Operations Schedule) are fired by a
   real poll loop through the same pipeline as an on-demand task; nothing
   about a "next run" is simulated.
@@ -104,42 +104,42 @@ Agent Operations Schedule timeline), Lucide React.
 
 ## Beyond the core: how each integration earns its place
 
-Every addition here extends the one product — delegated financial authority
-for AI agents — instead of bolting on an unrelated feature. None of them
+Every addition here extends the one product, delegated financial authority
+for AI agents, instead of bolting on an unrelated feature. None of them
 changes who is allowed to authorize money: that is still, always, the
 deterministic policy engine in `backend/app/guardrails/`.
 
-- **AG Grid — Agent Operations Console** (`/ledger`). The Commerce Ledger is
+- **AG Grid: Agent Operations Console** (`/ledger`). The Commerce Ledger is
   a full operations grid over real transactions: filtering, column
   visibility, CSV export, and a row-click evidence-chain side panel showing
   the real Agent Proposed → Policy Evaluated → PayPal Executed → Audit
   Verified timeline for that transaction, with live links to the original
   listing and the full audit trail.
-- **Channel3 — real product discovery** (`backend/app/search/channel3.py`).
+- **Channel3: real product discovery** (`backend/app/search/channel3.py`).
   The agent's research step can search Channel3's live product graph for
   real merchants, prices, and availability instead of relying solely on raw
   web search snippets. If Channel3 is not configured or a search genuinely
-  fails, the UI shows that failure — it never falls back to an invented
+  fails, the UI shows that failure. It never falls back to an invented
   product.
-- **Bryntum — Agent Operations Schedule** (`/schedule`). Standing delegated
+- **Bryntum: Agent Operations Schedule** (`/schedule`). Standing delegated
   instructions ("renew this subscription every month if it's still under
   $100") are real, persisted schedules. A backend poll loop
   (`backend/app/scheduler.py`) fires each one, when due, through the exact
-  same research → policy → PayPal pipeline as an on-demand task — every
+  same research → policy → PayPal pipeline as an on-demand task. Every
   occurrence is independently evaluated, not a fire-and-forget cron stub.
   The frontend visualizes it with Bryntum's native recurrence engine
   (`FREQ=DAILY/WEEKLY/MONTHLY`), not a hand-rolled calendar.
-- **APIMatic — the PayPal integration itself** (`docs/APIMATIC.md`). The
+- **APIMatic: the PayPal integration itself** (`docs/APIMATIC.md`). The
   PayPal client (`backend/app/paypal/`) was migrated off a hand-rolled OAuth2
   + httpx REST client onto PayPal's own official, APIMatic-generated Server
   SDK (`paypal-server-sdk`), installed and built against using APIMatic's
-  Context Plugin — the mechanism that feeds a coding agent the SDK's real,
+  Context Plugin: the mechanism that feeds a coding agent the SDK's real,
   grounded facts instead of letting it guess PayPal's API from training
   data. Live-testing the migration against real Sandbox immediately caught
   a genuine requirement (`PayPal-Request-Id`) the old client had silently
   missed. See `docs/APIMATIC.md` for the full trail, including the dead end
   in the hackathon slide's example repo and the real one that replaced it.
-- **Render — deployment configuration** (`render.yaml`, `docker-compose.yml`).
+- **Render: deployment configuration** (`render.yaml`, `docker-compose.yml`).
   Config only: this project was not deployed to a live Render account from
   this environment. The blueprint and compose files describe exactly how it
   would run, including an honestly-documented optional topology for running
@@ -161,7 +161,7 @@ agentauth/
 │   └── openapi.json    The live OpenAPI spec, pulled from the running backend
 ├── .env.example
 ├── docker-compose.yml  Local multi-container topology (+ optional separate worker profile)
-├── render.yaml         Render Blueprint (config only — not deployed from this environment)
+├── render.yaml         Render Blueprint (config only, not deployed from this environment)
 └── README.md
 ```
 
@@ -202,10 +202,10 @@ Copy `.env.example` to `backend/.env` and fill in:
 |---|---|
 | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | Sandbox REST app credentials from the [PayPal Developer Dashboard](https://developer.paypal.com/dashboard/applications) |
 | `PAYPAL_ENVIRONMENT` | `sandbox` (default) or `live` |
-| `PAYPAL_TEST_CARD_*` | Optional. A card generated from **your** Sandbox account's *Testing Tools → Generate credit cards*. If set, the agent can authorize a payment directly (no buyer redirect) — the realistic analog of a corporate card already on file. If left blank, AgentAuth falls back to the standard PayPal Checkout approve-link flow, where the frontend shows an **Approve on PayPal** button that opens the real Sandbox checkout. |
+| `PAYPAL_TEST_CARD_*` | Optional. A card generated from **your** Sandbox account's *Testing Tools → Generate credit cards*. If set, the agent can authorize a payment directly (no buyer redirect), the realistic analog of a corporate card already on file. If left blank, AgentAuth falls back to the standard PayPal Checkout approve-link flow, where the frontend shows an **Approve on PayPal** button that opens the real Sandbox checkout. |
 | `OPENROUTER_API_KEY` | From [openrouter.ai](https://openrouter.ai/) |
 | `OPENROUTER_MODEL` | Any OpenRouter model id, e.g. `openai/gpt-4o-mini`, `anthropic/claude-3.5-haiku` |
-| `CHANNEL3_API_KEY` | Optional. From [trychannel3.com](https://trychannel3.com/sign-up/developer) (free, 1,000 searches/month). Without it, Channel3 product search is skipped and the agent falls back to plain web research — never a fabricated product |
+| `CHANNEL3_API_KEY` | Optional. From [trychannel3.com](https://trychannel3.com/sign-up/developer) (free, 1,000 searches/month). Without it, Channel3 product search is skipped and the agent falls back to plain web research. It never returns a fabricated product |
 | `AUDIT_HMAC_SECRET` | Long random string used to chain-sign the audit log |
 | `FRONTEND_URL` | Used for PayPal return/cancel URLs and CORS |
 | `RUN_SCHEDULER_INPROCESS` | Default `true`. Whether this process also polls and fires due Agent Operations Schedule tasks; set `false` only if running `python worker.py` as a separate process instead |
@@ -216,7 +216,7 @@ Copy `.env.example` to `backend/.env` and fill in:
 2. Optionally generate a Sandbox test card under *Testing Tools* and set the
    `PAYPAL_TEST_CARD_*` variables for frictionless two-phase (authorize →
    verify → capture/void) demos without a buyer redirect.
-3. Without a test card, AgentAuth still works end-to-end — it just shows an
+3. Without a test card, AgentAuth still works end-to-end. It just shows an
    **Approve on PayPal** link that opens the real PayPal Sandbox checkout in
    a new tab for a Sandbox test buyer to approve, exactly like a production
    PayPal Checkout integration.
@@ -224,7 +224,7 @@ Copy `.env.example` to `backend/.env` and fill in:
 ### 5. OpenRouter
 
 Create a key at openrouter.ai and set `OPENROUTER_API_KEY`. The model is
-never hard-coded — set `OPENROUTER_MODEL` to whichever model you want the
+never hard-coded. Set `OPENROUTER_MODEL` to whichever model you want the
 agent to reason with.
 
 ## Running the tests

@@ -1,4 +1,4 @@
-"""Thin repository layer over SQLite. No ORM — deliberately simple per spec."""
+"""Thin repository layer over SQLite. No ORM, deliberately simple per spec."""
 from __future__ import annotations
 
 import json

@@ -124,7 +124,7 @@ export default function TransactionDetailPage() {
             <div>
               <p className="font-semibold">Confirming your PayPal payment…</p>
               <p className="text-sm text-[var(--color-text-secondary)]">
-                You approved this on PayPal — AgentAuth is now authorizing and verifying the price before
+                You approved this on PayPal. AgentAuth is now authorizing and verifying the price before
                 capture. This takes a few seconds.
               </p>
             </div>

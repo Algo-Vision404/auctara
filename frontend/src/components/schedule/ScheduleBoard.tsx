@@ -16,7 +16,7 @@ const RECURRENCE_RULE: Record<string, string | undefined> = {
 
 // Bryntum's named palette renders as a faint tonal tint in this theme, which
 // reads as "broken" against the app's deliberately bold, high-contrast
-// design system — so events are painted directly with the same brand tokens
+// design system. Events are painted directly with the same brand tokens
 // used by the rest of the app's status badges (see components/ui/Badge.tsx).
 const STATUS_STYLE: Record<string, { bg: string; fg: string }> = {
   ACTIVE: { bg: "#0F766E", fg: "#FFFFFF" },
@@ -50,7 +50,7 @@ export function ScheduleBoard({
           resourceId: s.agent_id,
           name: s.prompt.length > 60 ? `${s.prompt.slice(0, 57)}...` : s.prompt,
           startDate: anchor,
-          // Purely a visual marker for a point in time — a few hours wide so the
+          // Purely a visual marker for a point in time: a few hours wide so the
           // block reads clearly at day-level zoom, not a literal execution duration.
           duration: 6,
           durationUnit: "hour",
@@ -89,7 +89,7 @@ export function ScheduleBoard({
         return String(eventRecord.name ?? "");
       }}
       onEventClick={({ eventRecord }) => onEventClick?.(String(eventRecord.id))}
-      emptyText="No agents yet — create one before scheduling a recurring task."
+      emptyText="No agents yet. Create one before scheduling a recurring task."
     />
   );
 }

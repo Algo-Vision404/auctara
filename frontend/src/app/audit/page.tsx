@@ -50,7 +50,7 @@ export default function AuditPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <TopBar title="Audit" subtitle="Immutable, HMAC-chained evidence — separate from operational activity." />
+      <TopBar title="Audit" subtitle="Immutable, HMAC-chained evidence, separate from operational activity." />
       <main className="flex-1 space-y-6 px-5 py-6 md:px-8">
         <div className="card-surface flex flex-col items-start justify-between gap-4 p-5 sm:flex-row sm:items-center">
           <div>

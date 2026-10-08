@@ -72,7 +72,7 @@ export default function AgentsPage() {
               </div>
               <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
                 <ShieldCheck size={14} />
-                Autonomous up to {a.policy ? money(a.policy.approval_threshold) : "—"}
+                Autonomous up to {a.policy ? money(a.policy.approval_threshold) : "N/A"}
               </div>
               <div className="grid grid-cols-2 gap-3 border-t border-[var(--color-border)] pt-3 text-sm">
                 <div>

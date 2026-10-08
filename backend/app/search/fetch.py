@@ -2,7 +2,7 @@
 
 search_web only returns short SERP snippets, which frequently omit the
 actual price of a product. fetch_page lets the agent read the real text of
-a real URL it found in search results — still zero fabricated data, just a
+a real URL it found in search results. Still zero fabricated data, just a
 second, deeper look at a page that genuinely exists on the live web.
 """
 from __future__ import annotations

@@ -33,7 +33,7 @@ export default function LedgerPage() {
   return (
     <div className="flex flex-1 flex-col">
       <TopBar
-        title="Commerce Ledger — Agent Operations Console"
+        title="Commerce Ledger: Agent Operations Console"
         subtitle="Every real research → proposal → policy → approval → PayPal → audit pipeline, live from the backend."
       />
       <main className="flex-1 space-y-6 px-5 py-6 md:px-8">

@@ -1,7 +1,7 @@
 """LLM-facing tool definitions.
 
 Only research/proposal tools are exposed to the model. Policy evaluation and
-PayPal execution are deliberately NOT callable by the LLM — they are invoked
+PayPal execution are deliberately NOT callable by the LLM. They are invoked
 only by the deterministic orchestrator after the model has finished.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ TOOL_SCHEMAS = [
             "description": (
                 "Search Channel3's real-time catalog (100M+ products across online "
                 "retailers) for structured purchase candidates. Returns live price, "
-                "retailer domain, availability, and a buy URL directly — no page "
+                "retailer domain, availability, and a buy URL directly, with no page "
                 "scraping needed. PREFER this over search_web/fetch_page whenever the "
                 "task is to buy a physical or commercially-listed product. Only fall "
                 "back to search_web if this returns no relevant candidates (e.g. a "
@@ -82,7 +82,7 @@ TOOL_SCHEMAS = [
             "name": "create_purchase_proposal",
             "description": (
                 "Submit the single best purchase recommendation found during research. "
-                "This does NOT execute a purchase — it only creates a proposal that a "
+                "This does NOT execute a purchase. It only creates a proposal that a "
                 "separate deterministic policy engine will evaluate."
             ),
             "parameters": {

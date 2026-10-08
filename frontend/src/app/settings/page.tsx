@@ -42,8 +42,8 @@ export default function SettingsPage() {
             </div>
           )}
           <p className="text-xs text-[var(--color-text-muted)]">
-            Secrets are never sent to the browser. Configure credentials in the backend&apos;s <code className="font-mono-ui">.env</code> file —
-            see <code className="font-mono-ui">.env.example</code> in the project root.
+            Secrets are never sent to the browser. Configure credentials in the backend&apos;s <code className="font-mono-ui">.env</code> file.
+            See <code className="font-mono-ui">.env.example</code> in the project root.
           </p>
         </div>
       </main>

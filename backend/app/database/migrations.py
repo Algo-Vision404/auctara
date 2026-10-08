@@ -1,4 +1,4 @@
-"""Schema creation / migration. Idempotent — safe to call on every boot."""
+"""Schema creation / migration. Idempotent, safe to call on every boot."""
 from __future__ import annotations
 
 from app.database.database import get_connection

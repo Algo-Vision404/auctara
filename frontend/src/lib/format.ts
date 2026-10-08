@@ -1,24 +1,24 @@
 export function money(amount: number | null | undefined, currency = "USD"): string {
-  if (amount === null || amount === undefined) return "—";
+  if (amount === null || amount === undefined) return "N/A";
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount);
 }
 
 export function shortTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "N/A";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "N/A";
   return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 export function fullDateTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "N/A";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "N/A";
   return d.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "medium" });
 }
 
 export function titleCase(s: string | null | undefined): string {
-  if (!s) return "—";
+  if (!s) return "N/A";
   return s
     .toLowerCase()
     .split(/[_\s]+/)

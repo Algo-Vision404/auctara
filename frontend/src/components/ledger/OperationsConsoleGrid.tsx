@@ -95,13 +95,13 @@ function MerchantCell(p: ICellRendererParams<ConsoleRow>) {
       ) : p.data.channel3_product_id ? (
         <PackageSearch size={14} className="text-[var(--color-text-muted)]" />
       ) : null}
-      <span className="truncate">{p.data.merchant || "—"}</span>
+      <span className="truncate">{p.data.merchant || "N/A"}</span>
     </div>
   );
 }
 
 function DecisionCell(p: ICellRendererParams<ConsoleRow>) {
-  if (!p.data?.decision) return <span className="text-[var(--color-text-muted)]">—</span>;
+  if (!p.data?.decision) return <span className="text-[var(--color-text-muted)]">N/A</span>;
   return <Badge tone={decisionTone(p.data.decision)}>{titleCase(p.data.decision)}</Badge>;
 }
 
@@ -111,7 +111,7 @@ function StateCell(p: ICellRendererParams<ConsoleRow>) {
 }
 
 function PaypalCell(p: ICellRendererParams<ConsoleRow>) {
-  if (!p.data?.paypal_status) return <span className="text-[var(--color-text-muted)]">—</span>;
+  if (!p.data?.paypal_status) return <span className="text-[var(--color-text-muted)]">N/A</span>;
   const tone = PAYPAL_TONE[p.data.paypal_status] || "muted";
   return <Badge tone={tone}>{titleCase(p.data.paypal_status)}</Badge>;
 }
@@ -204,7 +204,7 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
         headerName: "Authority",
         field: "authorized_amount",
         minWidth: 110,
-        valueFormatter: (p) => (p.value ? money(p.value) : "—"),
+        valueFormatter: (p) => (p.value ? money(p.value) : "N/A"),
         cellClass: "font-mono-ui",
       },
       paypal_order_id: { headerName: "PayPal Order", field: "paypal_order_id", minWidth: 170, cellClass: "font-mono-ui" },
@@ -369,8 +369,8 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
           )}
         </div>
         <p className="px-1 text-xs text-[var(--color-text-muted)]">
-          Click any row to see its evidence chain. Every value above comes straight from the real backend —
-          nothing here is sample data.
+          Click any row to see its evidence chain. Every value above comes straight from the real backend.
+          Nothing here is sample data.
         </p>
       </div>
 

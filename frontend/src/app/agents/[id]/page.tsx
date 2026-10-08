@@ -161,7 +161,7 @@ export default function AgentDetailPage() {
                       <p className="text-xs text-[var(--color-text-muted)]">{shortTime(t.created_at)}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="font-mono-ui text-sm">{t.amount ? money(t.amount) : "—"}</span>
+                      <span className="font-mono-ui text-sm">{t.amount ? money(t.amount) : "N/A"}</span>
                       <Badge tone={stateTone(t.state)}>{titleCase(t.state)}</Badge>
                     </div>
                   </Link>

@@ -1,6 +1,6 @@
 """Centralized, deterministic transaction state machine.
 
-No other module may assign an arbitrary transaction `state` value — all
+No other module may assign an arbitrary transaction `state` value. All
 transitions must go through `transition()`, which validates the move
 against the allowed-edges graph below.
 """

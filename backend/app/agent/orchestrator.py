@@ -1,9 +1,9 @@
 """Deterministic orchestration around the (advisory) LLM agent.
 
 The LLM may only: understand the task, call search_web / get_exchange_rate,
-and submit ONE create_purchase_proposal. Everything from that point on —
+and submit ONE create_purchase_proposal. Everything from that point on,
 policy evaluation, budget reservation, PayPal order creation, price
-verification, capture/void — is plain Python with zero model involvement.
+verification, capture/void, is plain Python with zero model involvement.
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def _humanize_llm_error(exc: Exception) -> str:
     """Turn a raw OpenRouter/OpenAI SDK exception into a short, human-readable
     message for the UI and activity log, while the full original exception is
     still logged server-side (and chained via `from exc`) for real debugging.
-    Never fabricates a cause — only reformats the genuine one.
+    Never fabricates a cause. Only reformats the genuine one.
     """
     if isinstance(exc, APIStatusError):
         inner = None
@@ -152,7 +152,7 @@ async def run_task(task_id: str) -> None:
     _set_tx_state(tx_id, "RESEARCHING", "PROPOSED")
     await emit(
         "PROPOSAL_CREATED",
-        f"Purchase proposal created: {proposal['merchant']} — ${proposal['amount']:.2f} {proposal['currency']}.",
+        f"Purchase proposal created: {proposal['merchant']}, ${proposal['amount']:.2f} {proposal['currency']}.",
         task_id=task_id, agent_id=agent["id"], transaction_id=tx_id,
         payload={**proposal, "amount_usd": round(amount_usd, 2)},
     )
@@ -417,7 +417,7 @@ async def execute_payment(tx_id: str) -> None:
         order = await paypal_orders.create_order(
             amount=tx["expected_amount"],
             currency="USD",
-            description=f"{tx['merchant']} — {tx.get('reason', '')}"[:120],
+            description=f"{tx['merchant']}: {tx.get('reason', '')}"[:120],
             return_url=f"{frontend_origin}/transactions/{tx_id}?paypal=return",
             cancel_url=f"{frontend_origin}/transactions/{tx_id}?paypal=cancel",
             custom_id=tx_id,

@@ -18,7 +18,7 @@ export function buildTimelineStages(tx: Transaction): TimelineStage[] {
       icon: Bot,
       status: find("PROPOSAL_CREATED") ? "done" : "pending",
       timestamp: find("PROPOSAL_CREATED")?.created_at,
-      detail: tx.merchant ? `${tx.merchant} — ${money(tx.amount, tx.currency || "USD")}` : undefined,
+      detail: tx.merchant ? `${tx.merchant}: ${money(tx.amount, tx.currency || "USD")}` : undefined,
     },
     {
       key: "policy",
@@ -26,7 +26,7 @@ export function buildTimelineStages(tx: Transaction): TimelineStage[] {
       icon: ShieldCheck,
       status: find("POLICY_EVALUATED") ? "done" : "pending",
       timestamp: find("POLICY_EVALUATED")?.created_at,
-      detail: tx.decision ? `${tx.decision.replace("_", " ")} — ${tx.decision_reason || ""}` : undefined,
+      detail: tx.decision ? `${tx.decision.replace("_", " ")}: ${tx.decision_reason || ""}` : undefined,
     },
   ];
 
@@ -56,7 +56,7 @@ export function buildTimelineStages(tx: Transaction): TimelineStage[] {
       detail: captured
         ? `Captured ${tx.paypal_capture_id || ""}`
         : voided
-        ? "Voided — price verification failed"
+        ? "Voided: price verification failed"
         : orderCreated
         ? "PayPal order created, verifying…"
         : undefined,
@@ -76,7 +76,7 @@ export function buildTimelineStages(tx: Transaction): TimelineStage[] {
       icon: ScrollText,
       status: find("POLICY_BLOCKED") ? "done" : "pending",
       timestamp: find("POLICY_BLOCKED")?.created_at,
-      detail: "Block decision permanently recorded — no PayPal transaction created.",
+      detail: "Block decision permanently recorded. No PayPal transaction created.",
     });
   }
 

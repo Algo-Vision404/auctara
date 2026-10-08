@@ -17,7 +17,7 @@ const dmMono = DM_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AgentAuth — Delegated Spending Authority for AI Agents",
+  title: "AgentAuth: Delegated Spending Authority for AI Agents",
   description:
     "Let AI agents act. Keep financial authority under your control. AgentAuth lets users delegate spending authority to AI agents behind a deterministic policy engine and real PayPal Sandbox execution.",
 };

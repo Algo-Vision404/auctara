@@ -56,11 +56,11 @@ export function ApprovalCard({
           Policy Evaluation
         </p>
         <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-          <EvalRow label="Autonomous authority" value={agent?.policy ? money(agent.policy.approval_threshold) : "—"} />
+          <EvalRow label="Autonomous authority" value={agent?.policy ? money(agent.policy.approval_threshold) : "N/A"} />
           <EvalRow label="Requested" value={money(tx.amount, tx.currency || "USD")} />
           <EvalRow
             label="Monthly budget remaining"
-            value={tx.remaining_monthly_budget !== null ? money(tx.remaining_monthly_budget) : "—"}
+            value={tx.remaining_monthly_budget !== null ? money(tx.remaining_monthly_budget) : "N/A"}
           />
         </div>
         <div className="grid grid-cols-3 gap-3">

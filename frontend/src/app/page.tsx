@@ -53,7 +53,7 @@ export default function OverviewPage() {
               Your agents are working
             </p>
             <h2 className="mt-1 font-sans text-2xl font-semibold tracking-tight">
-              {summary?.active_agents ?? "—"} Active Agent{summary?.active_agents === 1 ? "" : "s"}
+              {summary?.active_agents ?? "N/A"} Active Agent{summary?.active_agents === 1 ? "" : "s"}
             </h2>
             <p className="mt-1 max-w-md text-sm text-[var(--color-text-secondary)]">
               Every purchase they propose is checked by your deterministic policy engine before PayPal ever
@@ -70,23 +70,23 @@ export default function OverviewPage() {
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
             label="Active Agents"
-            value={summary?.active_agents ?? "—"}
+            value={summary?.active_agents ?? "N/A"}
             icon={<Bot size={16} />}
             tone="accent"
           />
           <StatCard
             label="Spent Today"
-            value={summary ? money(summary.spent_today) : "—"}
+            value={summary ? money(summary.spent_today) : "N/A"}
             icon={<CircleDollarSign size={16} />}
           />
           <StatCard
             label="Remaining Today"
-            value={summary ? money(summary.remaining_today) : "—"}
+            value={summary ? money(summary.remaining_today) : "N/A"}
             icon={<WalletCards size={16} />}
           />
           <StatCard
             label="Awaiting Approval"
-            value={summary?.awaiting_approval ?? "—"}
+            value={summary?.awaiting_approval ?? "N/A"}
             icon={<Clock3 size={16} />}
             tone="warning"
           />

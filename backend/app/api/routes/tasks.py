@@ -23,7 +23,7 @@ class CreateTaskRequest(BaseModel):
 def _browser_origin(request: Request) -> str | None:
     """Best-effort real origin of the browser that called this API, so PayPal's
     redirect back after checkout lands on whatever host/port the user is
-    actually viewing the app from (localhost, a LAN IP, or a preview domain) —
+    actually viewing the app from (localhost, a LAN IP, or a preview domain),
     never a hardcoded FRONTEND_URL that may not match in this environment."""
     origin = request.headers.get("origin")
     if origin:

@@ -135,7 +135,7 @@ export default function SchedulePage() {
     <div className="flex flex-1 flex-col">
       <TopBar
         title="Agent Operations Schedule"
-        subtitle="Standing delegated-spending instructions the backend fires on a real recurring clock — no simulated runs."
+        subtitle="Standing delegated-spending instructions the backend fires on a real recurring clock, not simulated runs."
       />
       <main className="min-w-0 flex-1 space-y-6 px-5 py-6 md:px-8">
         {error && (
@@ -151,7 +151,7 @@ export default function SchedulePage() {
           </div>
           <p className="text-sm text-[var(--color-text-secondary)]">
             Give an agent a standing instruction. The scheduler fires it through the same research → policy → PayPal
-            pipeline as an on-demand task — every occurrence is a real, independently-evaluated purchase decision.
+            pipeline as an on-demand task. Every occurrence is a real, independently evaluated purchase decision.
           </p>
 
           {activeAgents.length === 0 ? (
@@ -235,7 +235,7 @@ export default function SchedulePage() {
           </div>
           {schedules.length === 0 ? (
             <p className="px-6 py-8 text-sm text-[var(--color-text-muted)]">
-              No scheduled tasks yet — create one above to delegate a recurring instruction.
+              No scheduled tasks yet. Create one above to delegate a recurring instruction.
             </p>
           ) : (
             <ul className="divide-y divide-[var(--color-border)]">

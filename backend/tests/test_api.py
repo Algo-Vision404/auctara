@@ -92,7 +92,7 @@ def test_policy_evaluate_dry_run():
 
 def test_task_without_openrouter_key_fails_visibly_not_silently():
     """With no AI key configured, the task must fail with a real, visible
-    error — never pretend to succeed with fabricated data."""
+    error. Never pretend to succeed with fabricated data."""
     with TestClient(app) as client:
         payload = {
             "name": "Unconfigured Agent", "purpose": "x", "directive": "x",

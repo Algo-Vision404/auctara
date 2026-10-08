@@ -9,7 +9,7 @@ version: "3.9"
 # scheduler logic (backend/worker.py) as its own process instead, so it can
 # be scaled or restarted independently of the API. It is disabled by default
 # (behind the `with-worker` profile) so plain `docker-compose up` only starts
-# one scheduler loop — running both would fire every due task twice.
+# one scheduler loop. Running both would fire every due task twice.
 #
 #   docker-compose --profile with-worker up   # backend (API only) + worker
 #

@@ -32,7 +32,7 @@ modest default. Always return valid JSON matching exactly this shape:
 
 Rules:
 - approval_threshold is the amount the agent can spend WITHOUT asking a human.
-- max_transaction_amount is the absolute ceiling — anything above it must be \
+- max_transaction_amount is the absolute ceiling. Anything above it must be \
 blocked outright, even with approval. It should be >= approval_threshold. If \
 the user does not imply a hard ceiling, set it to 1.5x the approval_threshold.
 - allowed_categories may be empty (meaning: any category not blocked is ok).

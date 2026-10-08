@@ -2,7 +2,7 @@
 
 This is the single authoritative place a spending decision is made.
 It never consults the LLM and the LLM never calls it directly for
-authorization — only the backend transaction orchestrator does.
+authorization. Only the backend transaction orchestrator does.
 """
 from __future__ import annotations
 

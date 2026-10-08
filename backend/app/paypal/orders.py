@@ -6,7 +6,7 @@
   void_authorization()    -> release the hold without charging
 
 Every call goes through PayPal's own official `paypal-server-sdk`
-(`client.orders`, `client.payments` — APIMatic-generated controllers), not
+(`client.orders`, `client.payments`, APIMatic-generated controllers), not
 hand-rolled REST requests: request bodies are built from the SDK's typed
 models (`OrderRequest`, `PurchaseUnitRequest`, `Money`, ...) so a malformed
 field is a Python-level error before anything is sent, and PayPal's SDK
@@ -16,7 +16,7 @@ their original names and return shapes exactly, so nothing upstream
 
 If a sandbox test card is configured (PAYPAL_TEST_CARD_*), the order is
 created with a direct card payment_source so the authorization completes
-synchronously (no buyer browser redirect needed) — this is the path used
+synchronously (no buyer browser redirect needed). This is the path used
 for an agent acting autonomously on a payment method already on file.
 Otherwise a standard "approve" link is returned, and the frontend sends the
 shopper to PayPal Sandbox to approve the order like a normal checkout.
@@ -86,7 +86,7 @@ async def create_order(amount: float, currency: str, description: str,
     order_request = OrderRequest(**order_kwargs)
 
     # PayPal requires a PayPal-Request-Id (idempotency key) on any single-step
-    # create-order-with-payment-source call — i.e. whenever we hand over a
+    # create-order-with-payment-source call, i.e. whenever we hand over a
     # card directly instead of waiting for buyer approval. Without it PayPal
     # rejects the request with PAYPAL_REQUEST_ID_REQUIRED.
     request_options = {"body": order_request, "prefer": RETURN_REPRESENTATION}

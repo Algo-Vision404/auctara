@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
         scheduler_task = asyncio.create_task(scheduler_loop(stop_event))
         logger.info("In-process scheduler enabled (RUN_SCHEDULER_INPROCESS=true).")
     else:
-        logger.info("In-process scheduler disabled — expecting a separate `python worker.py` process.")
+        logger.info("In-process scheduler disabled. Expecting a separate `python worker.py` process.")
 
     yield
 
@@ -47,7 +47,7 @@ app = FastAPI(
         "a deterministic backend policy engine decides ALLOW / APPROVAL_REQUIRED / "
         "BLOCK; PayPal Sandbox only ever executes what the policy engine (and, where "
         "required, a human) has authorized. This spec is generated directly from the "
-        "live FastAPI app — every path, schema, and tag reflects the real API, not "
+        "live FastAPI app. Every path, schema, and tag reflects the real API, not "
         "hand-written documentation that can drift from the code."
     ),
     lifespan=lifespan,

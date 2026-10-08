@@ -7,7 +7,7 @@ and a real task execution: on every poll tick it finds schedules whose
 agent -> policy -> PayPal pipeline (no shortcuts, no simulated outcomes),
 and advances the schedule's `next_run_at` by its recurrence.
 
-Runs either in-process (default — convenient for local/dev and this sandbox,
+Runs either in-process (default, convenient for local/dev and this sandbox,
 controlled by Settings.run_scheduler_inprocess) or as a standalone process
 via worker.py for a real separate Render worker service in production.
 """
@@ -33,7 +33,7 @@ async def run_due_schedules() -> int:
     for sched in due:
         agent = models.get_agent(sched["agent_id"])
         if not agent or agent["status"] != "ACTIVE":
-            # Agent no longer exists/active — push the schedule forward so it
+            # Agent no longer exists/active. Push the schedule forward so it
             # doesn't spin hot, but never fabricate a run for a dead agent.
             nxt = models.compute_next_run(sched["next_run_at"], sched["recurrence"])
             if nxt:

@@ -1,10 +1,10 @@
-"""Channel3 product discovery — real-time structured commerce data.
+"""Channel3 product discovery: real-time structured commerce data.
 
 Channel3 (https://trychannel3.com) indexes 100M+ real products across online
 retailers and returns live price, availability, retailer, and imagery for
 each one. The procurement agent calls this FIRST for any shopping/purchase
-task, because it returns structured, trustworthy offer data directly —
-no page-scraping needed — and that data flows straight into the purchase
+task, because it returns structured, trustworthy offer data directly,
+with no page-scraping needed, and that data flows straight into the purchase
 proposal AgentAuth's policy engine ultimately evaluates.
 
 No fallback or fabricated data is ever returned here. If the API key is

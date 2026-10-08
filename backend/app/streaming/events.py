@@ -1,7 +1,7 @@
 """A minimal in-process pub/sub used to power Server-Sent Events.
 
 Every event that is published here is also persisted (activity / audit)
-by the caller — this bus only exists to push already-real events to
+by the caller. This bus only exists to push already-real events to
 connected browsers in real time.
 """
 from __future__ import annotations

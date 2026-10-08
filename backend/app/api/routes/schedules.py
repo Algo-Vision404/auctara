@@ -1,4 +1,4 @@
-"""Agent Operations Schedule — persisted recurring delegated-commerce tasks.
+"""Agent Operations Schedule: persisted recurring delegated-commerce tasks.
 
 A scheduled task is a standing instruction ("renew our analytics
 subscription every month if the price stays below $100") that the

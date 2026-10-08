@@ -3,7 +3,7 @@
 No fabricated results are ever returned. Every result returned by
 `search_web` comes from a real HTTP response from a real search engine at
 call time. If every provider fails, the error propagates so the caller must
-surface SEARCH_FAILED — we never invent or hardcode results.
+surface SEARCH_FAILED. We never invent or hardcode results.
 
 Primary provider: `ddgs` (DuckDuckGo/meta-search aggregator).
 Fallback provider: a direct, real-time HTML scrape of Bing search results.
@@ -54,7 +54,7 @@ def _search_sync_ddgs(query: str, max_results: int) -> list[dict]:
 def _decode_bing_redirect(href: str) -> str:
     """Bing wraps organic result links in a /ck/a? redirect with the real
     destination base64-encoded in the `u` query param, prefixed with "a1".
-    If anything about that doesn't parse, fall back to the raw href — never
+    If anything about that doesn't parse, fall back to the raw href. Never
     fabricate a URL.
     """
     try:
