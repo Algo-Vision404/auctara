@@ -63,6 +63,15 @@ async def draft_policy_from_text(instructions: str) -> dict:
                 {"role": "user", "content": instructions},
             ],
             temperature=0.1,
+            # The output is always a small, bounded JSON object (a handful of
+            # numbers, two short strings, and a couple of short category
+            # lists), never more than a few hundred tokens in practice. Left
+            # unset, the client defaults to the model's own max completion
+            # tokens (16384 for gpt-4o-mini), which this call never needs and
+            # which can fail outright on an account whose remaining balance
+            # covers less than that ceiling, even though it easily covers
+            # what this request actually produces.
+            max_tokens=1024,
             response_format={"type": "json_object"},
         )
     except Exception as exc:  # noqa: BLE001
