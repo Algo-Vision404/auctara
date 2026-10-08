@@ -20,7 +20,7 @@ import {
   BadgeCheck,
   CreditCard,
   ScrollText,
-  ExternalLink,
+  ArrowRight,
   TriangleAlert,
   CircleCheck,
 } from "lucide-react";
@@ -273,9 +273,9 @@ export default function TransactionDetailPage() {
                 Complete this Sandbox order on PayPal to continue the two-phase payment flow.
               </p>
             </div>
-            <a href={tx.paypal_approve_url} target="_blank" rel="noreferrer">
+            <a href={tx.paypal_approve_url}>
               <Button variant="primary">
-                Approve on PayPal <ExternalLink size={16} />
+                Approve on PayPal <ArrowRight size={16} />
               </Button>
             </a>
           </div>
