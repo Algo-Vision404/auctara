@@ -1,3 +1,27 @@
+# Render Blueprint — config only. This repo has not been deployed to a live
+# Render account from this environment; this file describes the two services
+# (API + frontend) that `render blueprint launch` would create, in the same
+# simple single-scheduler-loop topology used for local development and the
+# live demo (RUN_SCHEDULER_INPROCESS=true on the one backend web service).
+#
+# Optional, separate "worker" service for the Agent Operations Schedule
+# (backend/worker.py — the same recurrence logic, running on its own process
+# instead of inside the API process) is sketched below, commented out, for
+# two honest reasons it is *not* part of the default blueprint:
+#   1. Render background workers require a paid instance type.
+#   2. Render disks are attached to one service each and are not shared
+#      across services, so a separate worker process cannot see the same
+#      SQLite file as the web service the way the local docker-compose
+#      `worker` profile can (via a shared Docker volume). Running a real
+#      separate worker on Render would need DATABASE_URL pointed at a
+#      shared database (e.g. Render Postgres) instead of file-based SQLite —
+#      a real architecture change, not a config toggle, so it's left as a
+#      documented option rather than something this blueprint pretends to
+#      support out of the box.
+# The single-service topology below (RUN_SCHEDULER_INPROCESS=true on the one
+# web service) is what this project actually runs and was demoed with.
+
+
 services:
   - type: web
     name: agentauth-backend
@@ -23,12 +47,16 @@ services:
         sync: false
       - key: OPENROUTER_MODEL
         value: openai/gpt-4o-mini
+      - key: CHANNEL3_API_KEY
+        sync: false
       - key: DATABASE_URL
         value: sqlite:////var/data/agentauth.db
       - key: AUDIT_HMAC_SECRET
         generateValue: true
       - key: FRONTEND_URL
         value: https://agentauth-frontend.onrender.com
+      - key: RUN_SCHEDULER_INPROCESS
+        value: "true"
     disk:
       name: agentauth-data
       mountPath: /var/data
@@ -44,3 +72,32 @@ services:
     envVars:
       - key: BACKEND_INTERNAL_URL
         value: https://agentauth-backend.onrender.com
+
+  # Optional — uncomment for an isolated scheduler process (requires a paid
+  # Render worker plan; also set RUN_SCHEDULER_INPROCESS=false above).
+  # - type: worker
+  #   name: agentauth-scheduler
+  #   env: python
+  #   plan: starter
+  #   rootDir: backend
+  #   buildCommand: pip install -r requirements.txt
+  #   startCommand: python worker.py
+  #   envVars:
+  #     - key: PAYPAL_CLIENT_ID
+  #       sync: false
+  #     - key: PAYPAL_CLIENT_SECRET
+  #       sync: false
+  #     - key: PAYPAL_ENVIRONMENT
+  #       value: sandbox
+  #     - key: OPENROUTER_API_KEY
+  #       sync: false
+  #     - key: OPENROUTER_MODEL
+  #       value: openai/gpt-4o-mini
+  #     - key: CHANNEL3_API_KEY
+  #       sync: false
+  #     - key: DATABASE_URL     # must point at a shared DB (e.g. Render
+  #       value: ""             # Postgres), not file-based SQLite — see note above
+  #     - key: AUDIT_HMAC_SECRET
+  #       sync: false
+  #     - key: FRONTEND_URL
+  #       value: https://agentauth-frontend.onrender.com

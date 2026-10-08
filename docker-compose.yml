@@ -1,5 +1,21 @@
 version: "3.9"
 
+# Default topology: a single backend container runs both the API and the
+# in-process Agent Operations Schedule poll loop (RUN_SCHEDULER_INPROCESS
+# defaults to true). This is the simplest correct deployment and what this
+# project is demoed with.
+#
+# `worker` below is an *optional* second topology: it runs the exact same
+# scheduler logic (backend/worker.py) as its own process instead, so it can
+# be scaled or restarted independently of the API. It is disabled by default
+# (behind the `with-worker` profile) so plain `docker-compose up` only starts
+# one scheduler loop — running both would fire every due task twice.
+#
+#   docker-compose --profile with-worker up   # backend (API only) + worker
+#
+# then set RUN_SCHEDULER_INPROCESS=false on `backend` so it doesn't also run
+# the loop in-process.
+
 services:
   backend:
     build:
@@ -15,9 +31,11 @@ services:
       - PAYPAL_TEST_CARD_CVV=${PAYPAL_TEST_CARD_CVV:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - OPENROUTER_MODEL=${OPENROUTER_MODEL:-openai/gpt-4o-mini}
+      - CHANNEL3_API_KEY=${CHANNEL3_API_KEY:-}
       - DATABASE_URL=sqlite:////data/agentauth.db
       - AUDIT_HMAC_SECRET=${AUDIT_HMAC_SECRET}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - RUN_SCHEDULER_INPROCESS=${RUN_SCHEDULER_INPROCESS:-true}
     volumes:
       - agentauth_data:/data
 
@@ -28,6 +46,29 @@ services:
       - "3000:3000"
     environment:
       - BACKEND_INTERNAL_URL=http://backend:8000
+    depends_on:
+      - backend
+
+  worker:
+    profiles: ["with-worker"]
+    build:
+      context: ./backend
+    command: ["python", "worker.py"]
+    environment:
+      - PAYPAL_CLIENT_ID=${PAYPAL_CLIENT_ID}
+      - PAYPAL_CLIENT_SECRET=${PAYPAL_CLIENT_SECRET}
+      - PAYPAL_ENVIRONMENT=${PAYPAL_ENVIRONMENT:-sandbox}
+      - PAYPAL_TEST_CARD_NUMBER=${PAYPAL_TEST_CARD_NUMBER:-}
+      - PAYPAL_TEST_CARD_EXPIRY=${PAYPAL_TEST_CARD_EXPIRY:-}
+      - PAYPAL_TEST_CARD_CVV=${PAYPAL_TEST_CARD_CVV:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-openai/gpt-4o-mini}
+      - CHANNEL3_API_KEY=${CHANNEL3_API_KEY:-}
+      - DATABASE_URL=sqlite:////data/agentauth.db
+      - AUDIT_HMAC_SECRET=${AUDIT_HMAC_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+    volumes:
+      - agentauth_data:/data
     depends_on:
       - backend
 

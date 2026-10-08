@@ -39,7 +39,19 @@ async def lifespan(app: FastAPI):
         await scheduler_task
 
 
-app = FastAPI(title="AgentAuth API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="AgentAuth API",
+    version="1.0.0",
+    description=(
+        "Delegated spending authority for AI agents. An agent proposes a purchase; "
+        "a deterministic backend policy engine decides ALLOW / APPROVAL_REQUIRED / "
+        "BLOCK; PayPal Sandbox only ever executes what the policy engine (and, where "
+        "required, a human) has authorized. This spec is generated directly from the "
+        "live FastAPI app — every path, schema, and tag reflects the real API, not "
+        "hand-written documentation that can drift from the code."
+    ),
+    lifespan=lifespan,
+)
 
 settings = get_settings()
 allowed_origins = {settings.frontend_url, "http://localhost:3000", "http://127.0.0.1:3000"}
