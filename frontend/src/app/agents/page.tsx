@@ -61,8 +61,8 @@ export default function AgentsPage() {
               className="card-surface animate-enter flex flex-col gap-4 p-5 transition-transform hover:-translate-y-0.5"
             >
               <div className="flex items-start justify-between">
-                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-accent-soft)] text-[var(--color-accent)]">
-                  <Bot size={18} />
+                <span className="flex h-10 w-10 items-center justify-center text-[var(--color-accent)]">
+                  <Bot size={22} />
                 </span>
                 <Badge tone={a.status === "ACTIVE" ? "success" : "muted"}>{titleCase(a.status)}</Badge>
               </div>

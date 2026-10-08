@@ -101,13 +101,12 @@ export default function AuditPage() {
               return (
                 <div key={r.id} className="flex items-start gap-3 border-b border-[var(--color-border)] px-5 py-3.5 last:border-0">
                   <span
-                    className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+                    className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center"
                     style={{
-                      background: `var(--color-${meta.tone}-soft, var(--color-surface-2))`,
                       color: `var(--color-${meta.tone}, var(--color-text-secondary))`,
                     }}
                   >
-                    <Icon size={14} />
+                    <Icon size={16} />
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">

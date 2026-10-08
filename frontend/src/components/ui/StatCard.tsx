@@ -23,10 +23,10 @@ export function StatCard({
         {icon && (
           <span
             className={clsx(
-              "flex h-8 w-8 items-center justify-center rounded-lg",
-              tone === "accent" && "bg-[var(--color-accent-soft)] text-[var(--color-accent)]",
-              tone === "warning" && "bg-[var(--color-warning-soft)] text-[var(--color-warning)]",
-              tone === "default" && "bg-[var(--color-surface-2)] text-[var(--color-text-secondary)]"
+              "flex h-8 w-8 items-center justify-center",
+              tone === "accent" && "text-[var(--color-accent)]",
+              tone === "warning" && "text-[var(--color-warning)]",
+              tone === "default" && "text-[var(--color-text-secondary)]"
             )}
           >
             {icon}

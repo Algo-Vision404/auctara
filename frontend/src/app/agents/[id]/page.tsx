@@ -89,8 +89,8 @@ export default function AgentDetailPage() {
             <div className="card-surface space-y-4 p-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-accent-soft)] text-[var(--color-accent)]">
-                    <Bot size={18} />
+                  <span className="flex h-10 w-10 items-center justify-center text-[var(--color-accent)]">
+                    <Bot size={22} />
                   </span>
                   <div>
                     <h3 className="font-semibold">{agent.name}</h3>

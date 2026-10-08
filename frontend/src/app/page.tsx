@@ -114,8 +114,8 @@ export default function OverviewPage() {
                     className="flex items-center justify-between rounded-xl border border-[var(--color-border)] px-4 py-3 transition-colors hover:bg-[var(--color-surface-2)]"
                   >
                     <div className="flex items-center gap-3">
-                      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--color-accent-soft)] text-[var(--color-accent)]">
-                        <Bot size={16} />
+                      <span className="flex h-9 w-9 items-center justify-center text-[var(--color-accent)]">
+                        <Bot size={20} />
                       </span>
                       <div>
                         <p className="text-sm font-semibold">{a.name}</p>

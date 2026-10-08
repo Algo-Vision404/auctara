@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CircleCheck, TriangleAlert } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 import { api } from "@/lib/api";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { Badge } from "@/components/ui/Badge";
 
 export function TopBar({ title, subtitle }: { title: string; subtitle?: string }) {
-  const [health, setHealth] = useState<Awaited<ReturnType<typeof api.health>> | null>(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
@@ -15,7 +14,7 @@ export function TopBar({ title, subtitle }: { title: string; subtitle?: string }
     const poll = () =>
       api
         .health()
-        .then((h) => mounted && (setHealth(h), setError(false)))
+        .then(() => mounted && setError(false))
         .catch(() => mounted && setError(true));
     poll();
     const id = setInterval(poll, 20000);
@@ -32,20 +31,11 @@ export function TopBar({ title, subtitle }: { title: string; subtitle?: string }
         {subtitle && <p className="text-sm text-[var(--color-text-secondary)]">{subtitle}</p>}
       </div>
       <div className="flex items-center gap-3">
-        {error ? (
+        {error && (
           <Badge tone="danger" icon={<TriangleAlert size={13} />}>
             Backend unreachable
           </Badge>
-        ) : health ? (
-          <div className="hidden items-center gap-2 sm:flex">
-            <Badge tone={health.paypal_configured ? "success" : "warning"} icon={<CircleCheck size={13} />}>
-              PayPal {health.paypal_environment}
-            </Badge>
-            <Badge tone={health.openrouter_configured ? "success" : "warning"} icon={<CircleCheck size={13} />}>
-              {health.model}
-            </Badge>
-          </div>
-        ) : null}
+        )}
         <ThemeToggle />
       </div>
     </header>

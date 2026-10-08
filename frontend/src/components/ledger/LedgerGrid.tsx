@@ -94,7 +94,7 @@ export function LedgerGrid({ transactions, agents }: { transactions: Transaction
       {
         headerName: "Category",
         field: "category",
-        minWidth: 130,
+        minWidth: 160,
         valueFormatter: (p) => titleCase(p.value),
       },
       {
