@@ -10,7 +10,7 @@ import { BudgetBar } from "@/components/agents/BudgetBar";
 import { api, ApiError } from "@/lib/api";
 import { Agent } from "@/lib/types";
 import { money, titleCase, shortTime } from "@/lib/format";
-import { Bot, ShieldCheck, Ban, Send, Loader2, ArrowUpRight, ReceiptText } from "lucide-react";
+import { Bot, ShieldCheck, Ban, Send, Loader2, ArrowUpRight, ReceiptText, UserX, Trash2 } from "lucide-react";
 
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -21,6 +21,9 @@ export default function AgentDetailPage() {
   const [maxAmount, setMaxAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [retiring, setRetiring] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   function load() {
     api
@@ -60,6 +63,48 @@ export default function AgentDetailPage() {
       setSubmitError(e instanceof ApiError ? e.message : "Failed to submit task");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleRetire() {
+    if (!agent) return;
+    if (
+      !window.confirm(
+        `Retire ${agent.name}? It will stop accepting new tasks immediately, and anything it has in ` +
+          "progress right now will be cancelled. Its full history stays exactly as it is."
+      )
+    )
+      return;
+    setRetiring(true);
+    setActionError(null);
+    try {
+      const updated = await api.retireAgent(agent.id);
+      setAgent(updated);
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.message : "Failed to retire agent");
+    } finally {
+      setRetiring(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!agent) return;
+    if (
+      !window.confirm(
+        `Permanently delete ${agent.name}? Everything it has in progress will be cancelled, and the ` +
+          "agent, its policy, tasks, and transactions will be erased. This cannot be undone. " +
+          "(Its audit trail entries are kept permanently, as with every agent.)"
+      )
+    )
+      return;
+    setDeleting(true);
+    setActionError(null);
+    try {
+      await api.deleteAgent(agent.id);
+      router.push("/agents");
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.message : "Failed to delete agent");
+      setDeleting(false);
     }
   }
 
@@ -180,6 +225,39 @@ export default function AgentDetailPage() {
                     </div>
                   </Link>
                 ))}
+              </div>
+            </div>
+
+            <div className="card-surface space-y-3 border-l-4 border-l-[var(--color-danger)] p-6">
+              <h3 className="font-semibold text-[var(--color-danger)]">Danger Zone</h3>
+              {actionError && <p className="text-sm text-[var(--color-danger)]">{actionError}</p>}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] p-3">
+                <div>
+                  <p className="text-sm font-medium">Retire this agent</p>
+                  <p className="text-xs text-[var(--color-text-secondary)]">
+                    Stops it from accepting new tasks and cancels anything in progress. Full history stays visible.
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  loading={retiring}
+                  disabled={agent.status !== "ACTIVE"}
+                  onClick={handleRetire}
+                >
+                  <UserX size={16} /> {agent.status === "ACTIVE" ? "Retire" : "Retired"}
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] p-3">
+                <div>
+                  <p className="text-sm font-medium">Permanently delete this agent</p>
+                  <p className="text-xs text-[var(--color-text-secondary)]">
+                    Erases the agent, its policy, tasks, and transactions. Not reversible. Its audit trail
+                    entries are kept permanently.
+                  </p>
+                </div>
+                <Button variant="danger" loading={deleting} onClick={handleDelete}>
+                  <Trash2 size={16} /> Delete
+                </Button>
               </div>
             </div>
           </div>

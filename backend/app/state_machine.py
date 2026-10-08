@@ -24,29 +24,39 @@ STATES = {
     "VOIDED",
     "COMPLETED",
     "FAILED",
+    "CANCELLED",
 }
 
-TERMINAL_STATES = {"BLOCKED", "COMPLETED", "VOIDED", "FAILED"}
+TERMINAL_STATES = {"BLOCKED", "COMPLETED", "VOIDED", "FAILED", "CANCELLED"}
 
+# CANCELLED is distinct from every other terminal state: it means the agent
+# that owned this transaction was retired or deleted while the transaction
+# was still in flight (see orchestrator.retire_agent/delete_agent), not that
+# anything about the transaction itself failed, was blocked by policy, or
+# was voided for a price mismatch. It is reachable from every non-terminal
+# state except CAPTURED: once PayPal has actually captured the money, the
+# payment is effectively done and must run through to COMPLETED rather than
+# being cancelled out from under a real charge.
 ALLOWED_EDGES: dict[str, set[str]] = {
-    "CREATED": {"RESEARCHING", "FAILED"},
+    "CREATED": {"RESEARCHING", "FAILED", "CANCELLED"},
     # BLOCKED here specifically covers the agent itself declining a task as
     # outside its assigned purpose/directive (see
     # orchestrator.OutOfScopeError), before any proposal is ever produced.
     # It is a deliberate refusal, not a research failure, so it ends in the
     # same terminal state a deterministic policy block does rather than
     # FAILED.
-    "RESEARCHING": {"PROPOSED", "FAILED", "BLOCKED"},
-    "PROPOSED": {"POLICY_CHECK", "FAILED"},
-    "POLICY_CHECK": {"BLOCKED", "AWAITING_APPROVAL", "AUTHORIZED", "FAILED"},
-    "AWAITING_APPROVAL": {"AUTHORIZED", "BLOCKED", "FAILED"},
-    "AUTHORIZED": {"VERIFYING", "FAILED"},
-    "VERIFYING": {"CAPTURED", "VOIDED", "FAILED"},
+    "RESEARCHING": {"PROPOSED", "FAILED", "BLOCKED", "CANCELLED"},
+    "PROPOSED": {"POLICY_CHECK", "FAILED", "CANCELLED"},
+    "POLICY_CHECK": {"BLOCKED", "AWAITING_APPROVAL", "AUTHORIZED", "FAILED", "CANCELLED"},
+    "AWAITING_APPROVAL": {"AUTHORIZED", "BLOCKED", "FAILED", "CANCELLED"},
+    "AUTHORIZED": {"VERIFYING", "FAILED", "CANCELLED"},
+    "VERIFYING": {"CAPTURED", "VOIDED", "FAILED", "CANCELLED"},
     "CAPTURED": {"COMPLETED", "FAILED"},
     "VOIDED": set(),
     "COMPLETED": set(),
     "BLOCKED": set(),
     "FAILED": set(),
+    "CANCELLED": set(),
 }
 
 

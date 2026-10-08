@@ -14,9 +14,9 @@ import { api, ApiError } from "@/lib/api";
 import { Transaction, Agent } from "@/lib/types";
 import { money, titleCase, fullDateTime } from "@/lib/format";
 import { buildTimelineStages } from "@/lib/timelineStages";
-import { Loader2, ArrowRight, TriangleAlert, CircleCheck } from "lucide-react";
+import { Loader2, ArrowRight, TriangleAlert, CircleCheck, XCircle } from "lucide-react";
 
-const TERMINAL_STATES = new Set(["COMPLETED", "BLOCKED", "VOIDED", "FAILED"]);
+const TERMINAL_STATES = new Set(["COMPLETED", "BLOCKED", "VOIDED", "FAILED", "CANCELLED"]);
 
 export default function TransactionDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -163,6 +163,19 @@ export default function TransactionDetailPage() {
               <TriangleAlert size={16} /> Transaction Failed
             </p>
             <p className="text-sm text-[var(--color-text-secondary)]">{tx.error}</p>
+          </div>
+        )}
+
+        {tx.state === "CANCELLED" && (
+          <div className="card-elevated space-y-2 border-l-4 border-l-[var(--color-text-muted)] p-6">
+            <p className="flex items-center gap-2 text-sm font-semibold text-[var(--color-text-secondary)]">
+              <XCircle size={16} /> Task Cancelled
+            </p>
+            <p className="text-sm text-[var(--color-text-secondary)]">{tx.decision_reason}</p>
+            <p className="text-xs text-[var(--color-text-muted)]">
+              This was stopped because the agent that owned it was retired or deleted, not because of
+              anything about this task itself.
+            </p>
           </div>
         )}
 

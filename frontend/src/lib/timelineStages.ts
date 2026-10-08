@@ -17,6 +17,12 @@ export function buildTimelineStages(tx: Transaction): TimelineStage[] {
   // need to reflect that distinctly from "not reached yet", otherwise an
   // already-terminal, declined transaction looks like it is stuck waiting.
   const declined = find("TASK_DECLINED_OUT_OF_SCOPE");
+  // The agent's owner can also retire/delete the agent while a task is
+  // still mid-flight (see orchestrator.retire_agent/delete_agent), at any
+  // point in the pipeline, not just at the start like a scope decline. That
+  // is handled as a post-process pass below, after the stages have been
+  // built normally from whatever real events actually happened.
+  const cancelled = find("TASK_CANCELLED_AGENT_REMOVED");
 
   const stages: TimelineStage[] = [
     {
@@ -95,6 +101,34 @@ export function buildTimelineStages(tx: Transaction): TimelineStage[] {
         ? "Decline decision permanently recorded. No proposal or PayPal transaction was ever created."
         : "Block decision permanently recorded. No PayPal transaction created.",
     });
+  }
+
+  if (cancelled) {
+    // Whatever stage the pipeline had genuinely reached (done/failed) stays
+    // exactly as it was - those are real, permanent outcomes. Anything that
+    // hadn't happened yet gets relabeled "skipped" instead of being left
+    // looking like it is still pending or in progress forever, since nothing
+    // further will ever happen to this transaction now. The final audit
+    // stage is handled separately: the cancellation itself is a real,
+    // permanently sealed outcome, so it always ends up "done".
+    const audit = stages[stages.length - 1];
+    let labeled = false;
+    for (const stage of stages) {
+      if (stage === audit) continue;
+      if (stage.status === "pending" || stage.status === "current") {
+        stage.status = "skipped";
+        stage.timestamp = stage.timestamp || cancelled.created_at;
+        stage.detail = labeled
+          ? "Skipped: the agent was removed before this step was reached."
+          : `Cancelled: ${tx.decision_reason || "the agent was removed while this task was in progress."}`;
+        labeled = true;
+      }
+    }
+    if (audit.status !== "done") {
+      audit.status = "done";
+      audit.timestamp = cancelled.created_at;
+      audit.detail = "Cancellation permanently recorded. No further action occurs on this transaction.";
+    }
   }
 
   return stages;

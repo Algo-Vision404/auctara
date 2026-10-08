@@ -61,6 +61,11 @@ export function stateTone(state: string | null | undefined): Tone {
     case "POLICY_CHECK":
     case "VERIFYING":
       return "info";
+    // An administrative stop (the owning agent was retired/deleted mid-task),
+    // not an error or a policy block, so it gets the same neutral tone as an
+    // "N/A"/pending state rather than the red used for BLOCKED/FAILED/VOIDED.
+    case "CANCELLED":
+      return "muted";
     default:
       return "muted";
   }

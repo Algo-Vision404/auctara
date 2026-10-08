@@ -12,7 +12,8 @@ export type TransactionState =
   | "CAPTURED"
   | "VOIDED"
   | "COMPLETED"
-  | "FAILED";
+  | "FAILED"
+  | "CANCELLED";
 
 export interface Policy {
   id: string;

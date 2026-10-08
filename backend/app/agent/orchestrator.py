@@ -27,7 +27,7 @@ from app.paypal.client import PayPalError
 from app.search.channel3 import Channel3Error, search_products
 from app.search.duckduckgo import SearchError, search_web
 from app.search.fetch import FetchError, fetch_page
-from app.state_machine import InvalidTransition, transition
+from app.state_machine import TERMINAL_STATES, InvalidTransition, transition
 from app.streaming.events import bus
 
 logger = logging.getLogger("agentauth.orchestrator")
@@ -73,6 +73,15 @@ class OutOfScopeError(Exception):
     rather than a generic error."""
 
 
+class AgentRetiredError(Exception):
+    """Raised when, partway through a task, the agent that owns it is found
+    to have been retired or deleted (see retire_agent/delete_agent below).
+    Checked cooperatively at the top of every research-loop iteration, via
+    _ensure_agent_active, so a task that was already mid-flight when its
+    agent was removed stops itself on its very next step rather than
+    continuing to research, propose, or spend after it was told to stop."""
+
+
 async def emit(event_type: str, message: str, *, task_id: Optional[str] = None,
                 transaction_id: Optional[str] = None, agent_id: Optional[str] = None,
                 payload: Optional[dict] = None, audit: bool = True) -> None:
@@ -91,8 +100,29 @@ async def emit(event_type: str, message: str, *, task_id: Optional[str] = None,
 
 
 def _set_tx_state(tx_id: str, current: str, target: str, **fields: Any) -> dict:
+    """Validates the abstract state-machine edge AND re-checks that the row's
+    actual current state in the database still matches what the caller
+    believes it is, before writing. The second check is what actually makes
+    agent retirement/deletion safe: without it, a background task whose
+    `current` was computed before its agent got retired (and its
+    transaction force-cancelled out from under it, see _cancel_task) could
+    otherwise blindly overwrite CANCELLED back onto an active state once its
+    slow LLM/network call finally returns.
+    """
     transition(current, target)
+    live = models.get_transaction(tx_id)
+    if not live or live["state"] != current:
+        raise InvalidTransition(
+            f"Transaction {tx_id} is no longer in state {current} "
+            f"(now {live['state'] if live else 'deleted'}); refusing to overwrite."
+        )
     return models.update_transaction(tx_id, state=target, **fields)
+
+
+def _ensure_agent_active(agent_id: str) -> None:
+    agent = models.get_agent(agent_id)
+    if not agent or agent["status"] != "ACTIVE":
+        raise AgentRetiredError("Agent was retired or deleted while this task was in progress.")
 
 
 def _openrouter_client() -> AsyncOpenAI:
@@ -133,6 +163,9 @@ async def run_task(task_id: str) -> None:
         proposal = await _run_research_loop(agent, task, tx_id)
     except OutOfScopeError as exc:
         await _decline_out_of_scope(tx_id, task_id, agent["id"], str(exc))
+        return
+    except AgentRetiredError as exc:
+        await _cancel_task(tx_id, task_id, agent["id"], str(exc), current_state="RESEARCHING")
         return
     except (SearchError, AgentError) as exc:
         await _fail(tx_id, task_id, agent["id"], str(exc))
@@ -217,6 +250,12 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str) -> dict:
     ]
 
     for _ in range(MAX_TOOL_ITERATIONS):
+        # Cheap, cooperative check before every round-trip to the model: if
+        # the agent has been retired or deleted since this loop started,
+        # stop now instead of burning another LLM call researching (or
+        # worse, going on to propose/spend) for an agent that no longer
+        # exists or was told to stop.
+        _ensure_agent_active(agent["id"])
         try:
             response = await client.chat.completions.create(
                 model=settings.openrouter_model,
@@ -376,7 +415,7 @@ def _evaluate_policy_atomic(agent_id: str, tx_id: str, amount_usd: float, catego
 async def _fail(tx_id: str, task_id: str, agent_id: str, message: str) -> None:
     tx = models.get_transaction(tx_id)
     try:
-        if tx and tx["state"] not in ("BLOCKED", "COMPLETED", "VOIDED", "FAILED"):
+        if tx and tx["state"] not in TERMINAL_STATES:
             transition(tx["state"], "FAILED")
             # Clear any stale "action required" PayPal state so the UI never shows
             # a dead "Approve on PayPal" call-to-action for a transaction that has
@@ -407,6 +446,98 @@ async def _decline_out_of_scope(tx_id: str, task_id: str, agent_id: str, reason:
     models.update_task_status(task_id, "BLOCKED")
     await emit("TASK_DECLINED_OUT_OF_SCOPE", reason, task_id=task_id, agent_id=agent_id,
                 transaction_id=tx_id, payload={"reason": reason})
+
+
+async def _cancel_task(tx_id: str, task_id: str, agent_id: str, reason: str,
+                        *, current_state: Optional[str] = None) -> None:
+    """Stop a task/transaction because the agent that owns it was retired or
+    deleted, not because of anything about the task itself. Lands in
+    CANCELLED, a terminal state distinct from FAILED/BLOCKED/VOIDED, so the
+    Activity feed and Audit trail show this was an administrative stop, not
+    a pipeline outcome. decision_reason is set but decision itself is left
+    untouched (same convention as reject_transaction below): if a real
+    policy decision had already been reached (e.g. APPROVAL_REQUIRED) before
+    the agent was removed, that is still worth preserving as "how far this
+    got" rather than being overwritten.
+
+    Idempotent and safe to call twice for the same transaction: if another
+    caller already moved it to a terminal state first (e.g. the research
+    loop's own cooperative check beat a concurrent retire_agent() sweep to
+    it, or vice versa), this is a silent no-op instead of a duplicate event
+    or a crash.
+    """
+    tx = models.get_transaction(tx_id)
+    state = tx["state"] if tx else current_state
+    if state is None or state in TERMINAL_STATES:
+        return
+    if tx and tx.get("authorized_amount"):
+        models.release_budget(agent_id, tx_id, tx["authorized_amount"])
+    try:
+        _set_tx_state(tx_id, state, "CANCELLED", decision_reason=reason)
+    except InvalidTransition:
+        # Lost the race to a concurrent transition already moving this
+        # transaction somewhere else. Nothing more to do here.
+        return
+    models.update_task_status(task_id, "CANCELLED", reason)
+    await emit("TASK_CANCELLED_AGENT_REMOVED", reason, task_id=task_id, agent_id=agent_id,
+                transaction_id=tx_id, payload={"reason": reason})
+
+
+async def _cancel_in_flight_work(agent: dict) -> None:
+    """Stop every scheduled task and every non-terminal transaction/task
+    belonging to this agent. Shared by retire_agent and delete_agent: both
+    need identical 'stop everything in flight' behavior, they only differ in
+    whether the agent row ends up disabled or gone afterward."""
+    agent_id = agent["id"]
+    for sched in models.list_scheduled_tasks(agent_id):
+        if sched["status"] in ("ACTIVE", "PAUSED"):
+            models.update_scheduled_task(sched["id"], status="CANCELLED")
+
+    reason = f"Agent \"{agent['name']}\" was removed while this task was in progress."
+    for tx in models.list_transactions(agent_id):
+        if tx["state"] not in TERMINAL_STATES:
+            await _cancel_task(tx["id"], tx["task_id"], agent_id, reason, current_state=tx["state"])
+
+
+async def retire_agent(agent_id: str) -> dict:
+    """Soft removal: the agent stops accepting new tasks immediately (see the
+    status check in POST /tasks) and every task/transaction still in flight
+    is cancelled, but the agent row and its full transaction/activity/audit
+    history remain exactly as they are and stay visible everywhere."""
+    agent = models.get_agent(agent_id)
+    if not agent:
+        raise AgentError("Agent not found.")
+    if agent["status"] != "ACTIVE":
+        return agent
+
+    # Flip status FIRST, before touching any in-flight work: a task that is
+    # mid-loop right now cooperatively notices this on its very next
+    # iteration (_ensure_agent_active) and stops itself, even if this
+    # function's own cleanup sweep below races with it.
+    models.update_agent_status(agent_id, "RETIRED")
+    await _cancel_in_flight_work(agent)
+    await emit("AGENT_RETIRED", f"{agent['name']} was retired and will no longer accept new tasks.",
+                agent_id=agent_id, payload={"agent_name": agent["name"]})
+    return models.get_agent(agent_id)
+
+
+async def delete_agent(agent_id: str) -> None:
+    """Hard removal: every in-flight task/transaction is cancelled exactly as
+    retire_agent does, one final AGENT_DELETED record is sealed into the
+    permanent audit trail, and then the agent row itself (and, via
+    ON DELETE CASCADE, its policies/tasks/transactions/scheduled_tasks/
+    budget_ledger rows) is permanently deleted. activity_events and
+    audit_records are never touched by the cascade (see models.delete_agent)
+    so the audit trail survives even though the live entity is gone."""
+    agent = models.get_agent(agent_id)
+    if not agent:
+        raise AgentError("Agent not found.")
+    if agent["status"] == "ACTIVE":
+        models.update_agent_status(agent_id, "RETIRED")
+    await _cancel_in_flight_work(agent)
+    await emit("AGENT_DELETED", f"{agent['name']} was permanently deleted.", agent_id=agent_id,
+                payload={"agent_name": agent["name"], "purpose": agent["purpose"]})
+    models.delete_agent(agent_id)
 
 
 async def approve_transaction(tx_id: str) -> dict:

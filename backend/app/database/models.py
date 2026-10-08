@@ -44,6 +44,29 @@ def list_agents() -> list[dict]:
     return [row_to_dict(r) for r in rows]
 
 
+def update_agent_status(agent_id: str, status: str) -> Optional[dict]:
+    conn = get_connection()
+    conn.execute("UPDATE agents SET status=? WHERE id=?", (status, agent_id))
+    return get_agent(agent_id)
+
+
+def delete_agent(agent_id: str) -> None:
+    """Permanently remove an agent. `PRAGMA foreign_keys = ON` (set on every
+    connection, see database.py) plus `ON DELETE CASCADE` on policies,
+    tasks, transactions, scheduled_tasks, and budget_ledger means this one
+    statement also removes every row that belongs to this agent in those
+    tables. activity_events and audit_records deliberately have NO foreign
+    key back to agents (plain text columns) and are therefore never touched
+    by this cascade: the permanent, hash-chained audit trail must survive an
+    agent being deleted, even though the live entity and its transactions
+    are gone from the normal product surface. Callers are expected to have
+    already cancelled any in-flight work for this agent (see
+    orchestrator.delete_agent) before calling this.
+    """
+    conn = get_connection()
+    conn.execute("DELETE FROM agents WHERE id=?", (agent_id,))
+
+
 # -------------------------------------------------------------- policies --
 def create_policy(agent_id: str, policy: dict) -> dict:
     conn = get_connection()

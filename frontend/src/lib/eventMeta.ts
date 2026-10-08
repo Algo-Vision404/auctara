@@ -14,6 +14,9 @@ import {
   CircleDollarSign,
   FileText,
   PackageSearch,
+  UserX,
+  Trash2,
+  XCircle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -63,6 +66,14 @@ const META: Record<string, EventMeta> = {
   PAYMENT_VOIDED: { icon: ShieldX, tone: "danger", label: "Payment voided" },
   TRANSACTION_COMPLETED: { icon: CircleCheck, tone: "success", label: "Transaction completed" },
   TRANSACTION_FAILED: { icon: TriangleAlert, tone: "danger", label: "Transaction failed" },
+  // Agent lifecycle: retiring/deleting an agent and the resulting in-flight
+  // cancellations are administrative actions, not pipeline outcomes, so they
+  // get their own neutral/muted icons rather than reusing POLICY_BLOCKED's
+  // ShieldX or TASK_DECLINED_OUT_OF_SCOPE's Ban (both of which mean "the
+  // agent's own guardrails stopped a purchase", a different thing).
+  AGENT_RETIRED: { icon: UserX, tone: "muted", label: "Agent retired" },
+  AGENT_DELETED: { icon: Trash2, tone: "danger", label: "Agent deleted" },
+  TASK_CANCELLED_AGENT_REMOVED: { icon: XCircle, tone: "muted", label: "Cancelled: agent removed" },
 };
 
 export function eventMeta(type: string): EventMeta {
