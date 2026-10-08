@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { Transaction, AuditRecord, Agent } from "@/lib/types";
-import { money, titleCase } from "@/lib/format";
+import { Transaction, Agent } from "@/lib/types";
+import { money } from "@/lib/format";
 import { CircleCheck, ShieldX, BadgeCheck, TriangleAlert } from "lucide-react";
 
 export function ApprovalCard({

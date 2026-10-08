@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { api, ApiError } from "@/lib/api";
 import { Agent } from "@/lib/types";
-import { money, titleCase } from "@/lib/format";
+import { titleCase } from "@/lib/format";
 import { ShieldCheck, Save, FlaskConical, Plus } from "lucide-react";
 
 export default function PoliciesPage() {

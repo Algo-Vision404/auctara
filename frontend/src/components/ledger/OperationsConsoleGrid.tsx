@@ -16,7 +16,7 @@ import { money, titleCase, shortTime } from "@/lib/format";
 import { Badge, decisionTone, stateTone } from "@/components/ui/Badge";
 import { DecisionTimeline } from "@/components/transactions/DecisionTimeline";
 import { buildTimelineStages } from "@/lib/timelineStages";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   Download,
   Search,
