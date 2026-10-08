@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # Exchange rates
     exchange_rate_api_url: str = "https://open.er-api.com/v6/latest/USD"
 
+    # Channel3 (real-time product discovery API for agentic commerce)
+    channel3_api_key: str = ""
+    channel3_base_url: str = "https://api.trychannel3.com"
+
     @property
     def paypal_base_url(self) -> str:
         if self.paypal_environment.lower() == "live":

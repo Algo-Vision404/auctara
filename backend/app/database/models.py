@@ -134,18 +134,29 @@ def create_transaction(task_id: str, agent_id: str) -> dict:
 
 def get_transaction(tx_id: str) -> Optional[dict]:
     conn = get_connection()
-    row = conn.execute("SELECT * FROM transactions WHERE id=?", (tx_id,)).fetchone()
+    row = conn.execute(
+        "SELECT t.*, a.name AS agent_name, k.prompt AS task_prompt "
+        "FROM transactions t "
+        "JOIN agents a ON a.id = t.agent_id "
+        "LEFT JOIN tasks k ON k.id = t.task_id "
+        "WHERE t.id=?",
+        (tx_id,),
+    ).fetchone()
     return row_to_dict(row)
 
 
 def list_transactions(agent_id: str | None = None) -> list[dict]:
     conn = get_connection()
+    base = (
+        "SELECT t.*, a.name AS agent_name, k.prompt AS task_prompt "
+        "FROM transactions t "
+        "JOIN agents a ON a.id = t.agent_id "
+        "LEFT JOIN tasks k ON k.id = t.task_id"
+    )
     if agent_id:
-        rows = conn.execute(
-            "SELECT * FROM transactions WHERE agent_id=? ORDER BY created_at DESC", (agent_id,)
-        ).fetchall()
+        rows = conn.execute(base + " WHERE t.agent_id=? ORDER BY t.created_at DESC", (agent_id,)).fetchall()
     else:
-        rows = conn.execute("SELECT * FROM transactions ORDER BY created_at DESC").fetchall()
+        rows = conn.execute(base + " ORDER BY t.created_at DESC").fetchall()
     return [row_to_dict(r) for r in rows]
 
 

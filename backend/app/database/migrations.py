@@ -68,6 +68,21 @@ CREATE TABLE IF NOT EXISTS transactions (
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    prompt TEXT NOT NULL,
+    max_amount REAL,
+    recurrence TEXT NOT NULL DEFAULT 'ONCE', -- ONCE, DAILY, WEEKLY, MONTHLY
+    start_at TEXT NOT NULL,
+    next_run_at TEXT NOT NULL,
+    last_run_at TEXT,
+    last_task_id TEXT,
+    status TEXT NOT NULL DEFAULT 'ACTIVE', -- ACTIVE, PAUSED, CANCELLED
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
 CREATE TABLE IF NOT EXISTS budget_ledger (
     id TEXT PRIMARY KEY,
     agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
@@ -106,6 +121,7 @@ CREATE INDEX IF NOT EXISTS idx_tx_task ON transactions(task_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_agent ON budget_ledger(agent_id);
 CREATE INDEX IF NOT EXISTS idx_activity_task ON activity_events(task_id);
 CREATE INDEX IF NOT EXISTS idx_audit_seq ON audit_records(seq);
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(status, next_run_at);
 """
 
 
@@ -114,6 +130,10 @@ def run_migrations() -> None:
     conn.executescript(SCHEMA)
     _ensure_column(conn, "transactions", "paypal_approve_url", "TEXT")
     _ensure_column(conn, "tasks", "frontend_origin", "TEXT")
+    _ensure_column(conn, "transactions", "image_url", "TEXT")
+    _ensure_column(conn, "transactions", "retailer", "TEXT")
+    _ensure_column(conn, "transactions", "channel3_product_id", "TEXT")
+    _ensure_column(conn, "tasks", "scheduled_task_id", "TEXT")
 
 
 def _ensure_column(conn, table: str, column: str, coltype: str) -> None:

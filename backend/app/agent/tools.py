@@ -10,6 +10,29 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "channel3_search_products",
+            "description": (
+                "Search Channel3's real-time catalog (100M+ products across online "
+                "retailers) for structured purchase candidates. Returns live price, "
+                "retailer domain, availability, and a buy URL directly — no page "
+                "scraping needed. PREFER this over search_web/fetch_page whenever the "
+                "task is to buy a physical or commercially-listed product. Only fall "
+                "back to search_web if this returns no relevant candidates (e.g. a "
+                "software subscription or service Channel3 doesn't carry)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "What to shop for, e.g. 'USB podcast microphone'."},
+                    "max_price": {"type": "number", "description": "Optional maximum price in USD to filter by."},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_web",
             "description": "Search the live web for real products, merchants, and prices.",
             "parameters": {
@@ -76,6 +99,18 @@ TOOL_SCHEMAS = [
                     },
                     "reason": {"type": "string", "description": "Why this option was chosen."},
                     "source_url": {"type": "string", "description": "URL of the listing found."},
+                    "image_url": {
+                        "type": "string",
+                        "description": "Product image URL, if this candidate came from channel3_search_products.",
+                    },
+                    "retailer": {
+                        "type": "string",
+                        "description": "Retailer domain, if this candidate came from channel3_search_products.",
+                    },
+                    "channel3_product_id": {
+                        "type": "string",
+                        "description": "Channel3 product id, if this candidate came from channel3_search_products.",
+                    },
                 },
                 "required": ["merchant", "amount", "currency", "category", "reason", "source_url"],
             },

@@ -1,18 +1,37 @@
 import { Transaction } from "@/lib/types";
 import { money, titleCase } from "@/lib/format";
-import { ArrowUpRight, Store, Tag, FileText } from "lucide-react";
+import { ArrowUpRight, Store, Tag, FileText, PackageSearch } from "lucide-react";
 
 export function ProposalSummary({ tx }: { tx: Transaction }) {
   if (!tx.merchant) return null;
   return (
     <div className="card-surface space-y-4 p-6">
-      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-        Purchase Proposal
-      </p>
-      <h3 className="font-sans text-lg font-semibold">{tx.merchant}</h3>
-      <p className="font-mono-ui text-3xl font-semibold tracking-tight">
-        {money(tx.amount, tx.currency || "USD")}
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+          Purchase Proposal
+        </p>
+        {tx.channel3_product_id && (
+          <span className="flex items-center gap-1.5 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-text-secondary)]">
+            <PackageSearch size={12} /> Sourced via Channel3
+          </span>
+        )}
+      </div>
+      <div className="flex gap-4">
+        {tx.image_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={tx.image_url}
+            alt={tx.merchant}
+            className="h-20 w-20 flex-shrink-0 rounded-lg border border-[var(--color-border)] object-contain bg-[var(--color-surface-2)]"
+          />
+        )}
+        <div className="min-w-0 space-y-1">
+          <h3 className="truncate font-sans text-lg font-semibold">{tx.merchant}</h3>
+          <p className="font-mono-ui text-3xl font-semibold tracking-tight">
+            {money(tx.amount, tx.currency || "USD")}
+          </p>
+        </div>
+      </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <InfoRow icon={Store} label="Merchant" value={tx.merchant} />
         <InfoRow icon={Tag} label="Category" value={titleCase(tx.category)} />

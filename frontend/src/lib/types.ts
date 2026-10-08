@@ -56,6 +56,11 @@ export interface Transaction {
   category: string | null;
   reason: string | null;
   source_url: string | null;
+  image_url: string | null;
+  retailer: string | null;
+  channel3_product_id: string | null;
+  agent_name?: string;
+  task_prompt?: string | null;
   state: TransactionState;
   decision: Decision;
   decision_reason: string | null;

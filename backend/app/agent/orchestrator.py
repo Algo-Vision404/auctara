@@ -24,6 +24,7 @@ from app.guardrails import engine as policy_engine
 from app.guardrails.policies import build_context, policy_from_row
 from app.paypal import orders as paypal_orders
 from app.paypal.client import PayPalError
+from app.search.channel3 import Channel3Error, search_products
 from app.search.duckduckgo import SearchError, search_web
 from app.search.fetch import FetchError, fetch_page
 from app.state_machine import InvalidTransition, transition
@@ -143,6 +144,9 @@ async def run_task(task_id: str) -> None:
         category=proposal["category"].lower(),
         reason=proposal["reason"],
         source_url=proposal.get("source_url"),
+        image_url=proposal.get("image_url"),
+        retailer=proposal.get("retailer"),
+        channel3_product_id=proposal.get("channel3_product_id"),
         expected_amount=round(amount_usd, 2),
     )
     _set_tx_state(tx_id, "RESEARCHING", "PROPOSED")
@@ -231,7 +235,33 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str) -> dict:
             except json.JSONDecodeError:
                 args = {}
 
-            if name == "search_web":
+            if name == "channel3_search_products":
+                query = args.get("query", "")
+                max_price = args.get("max_price")
+                await emit("CHANNEL3_SEARCH_STARTED",
+                            f"Channel3: searching real-time product catalog for \"{query}\"...",
+                            task_id=task["id"], agent_id=agent["id"], transaction_id=tx_id,
+                            payload={"query": query, "max_price": max_price})
+                try:
+                    products = await search_products(query, max_price=max_price)
+                except Channel3Error as exc:
+                    await emit("CHANNEL3_SEARCH_FAILED", str(exc), task_id=task["id"], agent_id=agent["id"],
+                                transaction_id=tx_id, payload={"query": query, "error": str(exc)})
+                    messages.append({
+                        "role": "tool", "tool_call_id": call.id,
+                        "content": json.dumps({"error": str(exc)}),
+                    })
+                    continue
+                await emit("CHANNEL3_SEARCH_COMPLETED",
+                            f"Channel3 found {len(products)} real product candidate(s).",
+                            task_id=task["id"], agent_id=agent["id"], transaction_id=tx_id,
+                            payload={"query": query, "result_count": len(products), "products": products[:8]})
+                messages.append({
+                    "role": "tool", "tool_call_id": call.id,
+                    "content": json.dumps({"products": products[:8]}),
+                })
+
+            elif name == "search_web":
                 query = args.get("query", "")
                 await emit("SEARCH_STARTED", f"Searching the web for \"{query}\"...",
                             task_id=task["id"], agent_id=agent["id"], transaction_id=tx_id,

@@ -11,6 +11,7 @@ import {
   ScrollText,
   CircleDollarSign,
   FileText,
+  PackageSearch,
   type LucideIcon,
 } from "lucide-react";
 
@@ -23,6 +24,9 @@ export interface EventMeta {
 const META: Record<string, EventMeta> = {
   TASK_CREATED: { icon: ScrollText, tone: "info", label: "Task created" },
   AGENT_STARTED: { icon: Bot, tone: "info", label: "Agent started" },
+  CHANNEL3_SEARCH_STARTED: { icon: PackageSearch, tone: "info", label: "Channel3 product search" },
+  CHANNEL3_SEARCH_COMPLETED: { icon: PackageSearch, tone: "accent", label: "Channel3 results" },
+  CHANNEL3_SEARCH_FAILED: { icon: TriangleAlert, tone: "danger", label: "Channel3 search failed" },
   SEARCH_STARTED: { icon: Search, tone: "info", label: "Search started" },
   SEARCH_COMPLETED: { icon: Search, tone: "accent", label: "Search completed" },
   SEARCH_FAILED: { icon: TriangleAlert, tone: "danger", label: "Search failed" },
