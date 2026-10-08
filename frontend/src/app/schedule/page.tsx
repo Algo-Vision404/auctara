@@ -230,6 +230,10 @@ export default function SchedulePage() {
 
         <div className="card-surface min-w-0 overflow-x-auto p-3">
           <ScheduleBoard agents={activeAgents} schedules={schedules} onEventClick={(id) => setHighlighted(id)} />
+          <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+            Calendar view runs on an evaluation build of a third-party scheduling widget, shown here in its own
+            light theme with a small trial watermark.
+          </p>
         </div>
 
         <div className="card-surface overflow-hidden">
