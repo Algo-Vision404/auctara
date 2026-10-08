@@ -330,7 +330,14 @@ async def _fail(tx_id: str, task_id: str, agent_id: str, message: str) -> None:
     try:
         if tx and tx["state"] not in ("BLOCKED", "COMPLETED", "VOIDED", "FAILED"):
             transition(tx["state"], "FAILED")
-            models.update_transaction(tx_id, state="FAILED", error=message)
+            # Clear any stale "action required" PayPal state so the UI never shows
+            # a dead "Approve on PayPal" call-to-action for a transaction that has
+            # genuinely failed. paypal_order_id (if any) is kept for audit history.
+            models.update_transaction(
+                tx_id, state="FAILED", error=message,
+                paypal_status="FAILED" if tx.get("paypal_order_id") else tx.get("paypal_status"),
+                paypal_approve_url=None,
+            )
     except InvalidTransition:
         models.update_transaction(tx_id, error=message)
     models.update_task_status(task_id, "FAILED", message)

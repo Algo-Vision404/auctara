@@ -34,6 +34,7 @@ export default function TransactionDetailPage() {
   const [tx, setTx] = useState<Transaction | null>(null);
   const [agent, setAgent] = useState<Agent | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingPaypal, setConfirmingPaypal] = useState(false);
   const continuedRef = useRef(false);
 
   const load = useCallback(() => {
@@ -64,10 +65,15 @@ export default function TransactionDetailPage() {
   useEffect(() => {
     if (search.get("paypal") === "return" && !continuedRef.current) {
       continuedRef.current = true;
-      api.continuePaypal(id).finally(() => {
-        router.replace(`/transactions/${id}`);
-        load();
-      });
+      setConfirmingPaypal(true);
+      api
+        .continuePaypal(id)
+        .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to confirm PayPal payment"))
+        .finally(() => {
+          setConfirmingPaypal(false);
+          router.replace(`/transactions/${id}`);
+          load();
+        });
     }
   }, [search, id, router, load]);
 
@@ -191,6 +197,19 @@ export default function TransactionDetailPage() {
           )}
         </div>
 
+        {confirmingPaypal && (
+          <div className="card-elevated flex items-center gap-3 border-l-4 border-l-[var(--color-accent)] p-6">
+            <Loader2 size={18} className="animate-spin text-[var(--color-accent)]" />
+            <div>
+              <p className="font-semibold">Confirming your PayPal payment…</p>
+              <p className="text-sm text-[var(--color-text-secondary)]">
+                You approved this on PayPal — AgentAuth is now authorizing and verifying the price before
+                capture. This takes a few seconds.
+              </p>
+            </div>
+          </div>
+        )}
+
         {tx.state === "AWAITING_APPROVAL" && (
           <ApprovalCard tx={tx} agent={agent} policyEvaluation={policyEval} onApprove={handleApprove} onReject={handleReject} />
         )}
@@ -229,7 +248,8 @@ export default function TransactionDetailPage() {
           </div>
         )}
 
-        {tx.paypal_status === "PAYER_ACTION_REQUIRED" && tx.paypal_approve_url && (
+        {!confirmingPaypal && !TERMINAL_STATES.has(tx.state) &&
+          tx.paypal_status === "PAYER_ACTION_REQUIRED" && tx.paypal_approve_url && (
           <div className="card-elevated flex flex-col items-start gap-3 p-6 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-semibold">PayPal buyer approval required</p>
