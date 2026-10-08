@@ -17,5 +17,6 @@ PURCHASE_CATEGORIES = [
     "hardware",
     "travel",
     "marketing",
+    "food",
     "other",
 ]

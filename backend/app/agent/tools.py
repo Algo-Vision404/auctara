@@ -96,6 +96,16 @@ TOOL_SCHEMAS = [
                     "currency": {"type": "string", "description": "3-letter ISO currency code"},
                     "category": {
                         "type": "string",
+                        # A hard enum, not just a description hint: the policy
+                        # engine's allowed/blocked category lists are only
+                        # ever expressed in this exact fixed vocabulary (see
+                        # categories.py), so if this were left as free text
+                        # the model could emit a category (e.g. "food") that
+                        # no policy could ever have been configured to allow,
+                        # causing a genuinely in-scope, correctly-researched
+                        # purchase to be wrongly blocked for a reason no
+                        # human ever had a chance to anticipate or fix.
+                        "enum": PURCHASE_CATEGORIES,
                         "description": f"One of: {', '.join(PURCHASE_CATEGORIES)}",
                     },
                     "reason": {"type": "string", "description": "Why this option was chosen."},
