@@ -122,6 +122,28 @@ function PaypalCell(p: ICellRendererParams<ConsoleRow>) {
   return <Badge tone={tone}>{titleCase(p.data.paypal_status)}</Badge>;
 }
 
+// AG Grid's built in "No Rows To Show" overlay is generic, unstyled text
+// that does not match the rest of the app's empty states (e.g. "No agents
+// yet.", "No activity yet."). It also never explains the difference between
+// "there is genuinely nothing here" and "your filters are hiding everything",
+// which looks identical to a user and is a common source of a false "this is
+// broken" impression.
+function NoRowsOverlay({ filtered }: { filtered: boolean }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+      <PackageSearch size={28} className="text-[var(--color-text-muted)]" />
+      <p className="text-sm font-medium text-[var(--color-text)]">
+        {filtered ? "No transactions match these filters." : "No transactions yet."}
+      </p>
+      <p className="max-w-xs text-xs text-[var(--color-text-muted)]">
+        {filtered
+          ? "Clear a filter or widen the amount range to see more."
+          : "Give an agent a task and its proposals, approvals, and PayPal activity will appear here."}
+      </p>
+    </div>
+  );
+}
+
 export function OperationsConsoleGrid({ transactions, agents }: { transactions: Transaction[]; agents: Agent[] }) {
   const { resolvedTheme } = useTheme();
   const router = useRouter();
@@ -238,7 +260,9 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
     });
   }
 
-  const hasActiveFilters = agentFilter || decisionFilter || stateFilter || minAmount || maxAmount;
+  const hasActiveFilters = Boolean(
+    agentFilter || decisionFilter || stateFilter || minAmount || maxAmount || quickFilter.trim()
+  );
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row">
@@ -344,6 +368,7 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
                   setStateFilter("");
                   setMinAmount("");
                   setMaxAmount("");
+                  setQuickFilter("");
                 }}
                 className="flex items-center gap-1 text-xs font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
               >
@@ -371,6 +396,8 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
               animateRows
               onRowClicked={(e) => e.data && setSelected(e.data)}
               rowStyle={{ cursor: "pointer" }}
+              noRowsOverlayComponent={NoRowsOverlay}
+              noRowsOverlayComponentParams={{ filtered: hasActiveFilters }}
             />
           )}
         </div>

@@ -56,22 +56,50 @@ export default function OverviewPage() {
 
         <div className="card-elevated flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-accent)]">
-              Your agents are working
-            </p>
-            <h2 className="mt-1 font-sans text-2xl font-semibold tracking-tight">
-              {loading ? (
-                <Skeleton className="inline-block h-7 w-40 align-middle" />
-              ) : (
-                <>
+            {loading ? (
+              <>
+                <Skeleton className="h-4 w-36" />
+                <h2 className="mt-2 font-sans text-2xl font-semibold tracking-tight">
+                  <Skeleton className="inline-block h-7 w-40 align-middle" />
+                </h2>
+                <Skeleton className="mt-2 h-4 w-full max-w-md" />
+              </>
+            ) : agents.length === 0 ? (
+              <>
+                <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-accent)]">
+                  Get started
+                </p>
+                <h2 className="mt-1 font-sans text-2xl font-semibold tracking-tight">No agents yet</h2>
+                <p className="mt-1 max-w-md text-sm text-[var(--color-text-secondary)]">
+                  Create your first agent and give it an explicit spending policy. It will only ever act within the
+                  limits you set, checked by a deterministic policy engine before PayPal executes anything.
+                </p>
+              </>
+            ) : (summary?.active_agents ?? 0) === 0 ? (
+              <>
+                <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-text-muted)]">
+                  All agents paused
+                </p>
+                <h2 className="mt-1 font-sans text-2xl font-semibold tracking-tight">No active agents right now</h2>
+                <p className="mt-1 max-w-md text-sm text-[var(--color-text-secondary)]">
+                  You have {agents.length} agent{agents.length === 1 ? "" : "s"}, but none are active. Resume one
+                  from the Agents page or create a new one.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-accent)]">
+                  Your agents are working
+                </p>
+                <h2 className="mt-1 font-sans text-2xl font-semibold tracking-tight">
                   {summary?.active_agents ?? 0} Active Agent{summary?.active_agents === 1 ? "" : "s"}
-                </>
-              )}
-            </h2>
-            <p className="mt-1 max-w-md text-sm text-[var(--color-text-secondary)]">
-              Every purchase they propose is checked by your deterministic policy engine before PayPal ever
-              executes it.
-            </p>
+                </h2>
+                <p className="mt-1 max-w-md text-sm text-[var(--color-text-secondary)]">
+                  Every purchase they propose is checked by your deterministic policy engine before PayPal ever
+                  executes it.
+                </p>
+              </>
+            )}
           </div>
           <Link href="/agents/new">
             <Button variant="primary">
