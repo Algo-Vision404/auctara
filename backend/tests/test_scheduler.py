@@ -1,0 +1,113 @@
+"""Tests for the Agent Operations Schedule (app/scheduler.py).
+
+run_task (the real agent -> policy -> PayPal pipeline) is monkeypatched to a
+no-op here so these tests isolate the scheduler's own responsibilities:
+detecting due schedules, spawning a real persisted task for each one,
+advancing next_run_at by the right recurrence step, and handling inactive
+agents safely. The actual pipeline is already covered end-to-end by the
+other test modules and by live verification.
+"""
+import asyncio
+
+import pytest
+
+from app.database import models
+from app import scheduler
+
+
+def _make_agent():
+    agent = models.create_agent("Procurement Agent", "Buy office supplies", "Buy cheap supplies")
+    models.create_policy(agent["id"], {
+        "max_transaction_amount": 200, "approval_threshold": 150,
+        "daily_limit": 500, "monthly_limit": 3000,
+        "velocity": {"max_transactions": 5, "window_minutes": 60},
+        "blocked_categories": [], "allowed_categories": [],
+    })
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_due_schedule_triggers_a_real_task(monkeypatch):
+    triggered_task_ids = []
+
+    async def fake_run_task(task_id):
+        triggered_task_ids.append(task_id)
+
+    monkeypatch.setattr(scheduler, "run_task", fake_run_task)
+
+    agent = _make_agent()
+    past = "2020-01-01T00:00:00.000000Z"
+    sched = models.create_scheduled_task(agent["id"], "Buy printer paper", 50, "DAILY", past)
+
+    n = await scheduler.run_due_schedules()
+    await asyncio.sleep(0)  # let the fire-and-forget asyncio.create_task(run_task(...)) actually run
+    assert n == 1
+    assert len(triggered_task_ids) == 1
+
+    updated = models.get_scheduled_task(sched["id"])
+    assert updated["status"] == "ACTIVE"
+    assert updated["last_task_id"] == triggered_task_ids[0]
+    assert updated["last_run_at"] is not None
+    # DAILY recurrence must skip forward past "now", not just +1 day from 2020.
+    assert updated["next_run_at"] > models.now_iso()
+
+    task = models.get_task(triggered_task_ids[0])
+    assert task["scheduled_task_id"] == sched["id"]
+    assert task["prompt"] == "Buy printer paper"
+
+
+@pytest.mark.asyncio
+async def test_once_schedule_completes_after_firing(monkeypatch):
+    monkeypatch.setattr(scheduler, "run_task", lambda task_id: asyncio.sleep(0))
+
+    agent = _make_agent()
+    sched = models.create_scheduled_task(agent["id"], "One-off purchase", 20, "ONCE", "2020-01-01T00:00:00.000000Z")
+
+    n = await scheduler.run_due_schedules()
+    assert n == 1
+
+    updated = models.get_scheduled_task(sched["id"])
+    assert updated["status"] == "COMPLETED"
+
+
+@pytest.mark.asyncio
+async def test_future_schedule_is_not_triggered(monkeypatch):
+    monkeypatch.setattr(scheduler, "run_task", lambda task_id: asyncio.sleep(0))
+
+    agent = _make_agent()
+    future = "2099-01-01T00:00:00.000000Z"
+    models.create_scheduled_task(agent["id"], "Future purchase", 20, "ONCE", future)
+
+    n = await scheduler.run_due_schedules()
+    assert n == 0
+
+
+@pytest.mark.asyncio
+async def test_inactive_agent_schedule_is_skipped_not_fabricated(monkeypatch):
+    calls = []
+    monkeypatch.setattr(scheduler, "run_task", lambda task_id: calls.append(task_id) or asyncio.sleep(0))
+
+    agent = _make_agent()
+    models.update_task_status  # sanity import check only
+    from app.database.database import get_connection
+    get_connection().execute("UPDATE agents SET status='PAUSED' WHERE id=?", (agent["id"],))
+
+    sched = models.create_scheduled_task(agent["id"], "Should not run", 20, "ONCE", "2020-01-01T00:00:00.000000Z")
+
+    n = await scheduler.run_due_schedules()
+    assert n == 0
+    assert calls == []
+
+    updated = models.get_scheduled_task(sched["id"])
+    assert updated["status"] == "CANCELLED"
+
+
+def test_compute_next_run_skips_backlog_to_the_future():
+    old = "2020-01-01T00:00:00.000000Z"
+    nxt = models.compute_next_run(old, "DAILY")
+    assert nxt is not None
+    assert nxt > models.now_iso()
+
+
+def test_compute_next_run_once_returns_none():
+    assert models.compute_next_run("2020-01-01T00:00:00.000000Z", "ONCE") is None

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from contextlib import asynccontextmanager
@@ -8,9 +9,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import agents, audit, dashboard, health, policies, tasks, transactions
+from app.api.routes import agents, audit, dashboard, health, policies, schedules, tasks, transactions
 from app.config import get_settings
 from app.database.migrations import run_migrations
+from app.scheduler import scheduler_loop
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("agentauth")
@@ -21,7 +23,20 @@ async def lifespan(app: FastAPI):
     run_migrations()
     s = get_settings()
     logger.info("AgentAuth backend started. PayPal env=%s, model=%s", s.paypal_environment, s.openrouter_model)
+
+    scheduler_task = None
+    stop_event = asyncio.Event()
+    if s.run_scheduler_inprocess:
+        scheduler_task = asyncio.create_task(scheduler_loop(stop_event))
+        logger.info("In-process scheduler enabled (RUN_SCHEDULER_INPROCESS=true).")
+    else:
+        logger.info("In-process scheduler disabled — expecting a separate `python worker.py` process.")
+
     yield
+
+    if scheduler_task:
+        stop_event.set()
+        await scheduler_task
 
 
 app = FastAPI(title="AgentAuth API", version="1.0.0", lifespan=lifespan)
@@ -51,6 +66,7 @@ app.include_router(transactions.router, tags=["transactions"])
 app.include_router(policies.router, tags=["policies"])
 app.include_router(audit.router, tags=["audit"])
 app.include_router(dashboard.router, tags=["dashboard"])
+app.include_router(schedules.router, tags=["schedules"])
 
 
 @app.get("/")

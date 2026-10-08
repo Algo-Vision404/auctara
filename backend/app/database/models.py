@@ -87,13 +87,13 @@ def get_active_policy(agent_id: str) -> Optional[dict]:
 
 # ------------------------------------------------------------------ tasks --
 def create_task(agent_id: str, prompt: str, max_amount: float | None,
-                 frontend_origin: str | None = None) -> dict:
+                 frontend_origin: str | None = None, scheduled_task_id: str | None = None) -> dict:
     conn = get_connection()
     task_id = new_id("task")
     conn.execute(
-        "INSERT INTO tasks (id, agent_id, prompt, max_amount, status, frontend_origin) "
-        "VALUES (?,?,?,?, 'CREATED', ?)",
-        (task_id, agent_id, prompt, max_amount, frontend_origin),
+        "INSERT INTO tasks (id, agent_id, prompt, max_amount, status, frontend_origin, scheduled_task_id) "
+        "VALUES (?,?,?,?, 'CREATED', ?, ?)",
+        (task_id, agent_id, prompt, max_amount, frontend_origin, scheduled_task_id),
     )
     return get_task(task_id)
 
@@ -261,3 +261,80 @@ def list_activity(task_id: str | None = None, limit: int = 100) -> list[dict]:
         d["payload"] = json.loads(d["payload"])
         out.append(d)
     return out
+
+
+# ----------------------------------------------------------- scheduled tasks --
+RECURRENCE_STEPS = {
+    "ONCE": None,
+    "DAILY": timedelta(days=1),
+    "WEEKLY": timedelta(weeks=1),
+    "MONTHLY": timedelta(days=30),
+}
+
+
+def create_scheduled_task(agent_id: str, prompt: str, max_amount: float | None,
+                            recurrence: str, start_at: str) -> dict:
+    conn = get_connection()
+    sched_id = new_id("sched")
+    conn.execute(
+        "INSERT INTO scheduled_tasks (id, agent_id, prompt, max_amount, recurrence, start_at, next_run_at, status) "
+        "VALUES (?,?,?,?,?,?,?, 'ACTIVE')",
+        (sched_id, agent_id, prompt, max_amount, recurrence, start_at, start_at),
+    )
+    return get_scheduled_task(sched_id)
+
+
+def get_scheduled_task(sched_id: str) -> Optional[dict]:
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM scheduled_tasks WHERE id=?", (sched_id,)).fetchone()
+    return row_to_dict(row)
+
+
+def list_scheduled_tasks(agent_id: str | None = None) -> list[dict]:
+    conn = get_connection()
+    if agent_id:
+        rows = conn.execute(
+            "SELECT * FROM scheduled_tasks WHERE agent_id=? ORDER BY next_run_at ASC", (agent_id,)
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM scheduled_tasks ORDER BY next_run_at ASC").fetchall()
+    return [row_to_dict(r) for r in rows]
+
+
+def list_due_scheduled_tasks(now_iso: str) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM scheduled_tasks WHERE status='ACTIVE' AND next_run_at <= ? ORDER BY next_run_at ASC",
+        (now_iso,),
+    ).fetchall()
+    return [row_to_dict(r) for r in rows]
+
+
+def update_scheduled_task(sched_id: str, **fields: Any) -> dict:
+    conn = get_connection()
+    fields["updated_at"] = now_iso()
+    cols = ", ".join(f"{k}=?" for k in fields)
+    values = list(fields.values()) + [sched_id]
+    conn.execute(f"UPDATE scheduled_tasks SET {cols} WHERE id=?", values)
+    return get_scheduled_task(sched_id)
+
+
+def delete_scheduled_task(sched_id: str) -> None:
+    conn = get_connection()
+    conn.execute("DELETE FROM scheduled_tasks WHERE id=?", (sched_id,))
+
+
+def compute_next_run(current_next_run_iso: str, recurrence: str) -> Optional[str]:
+    """Advance a schedule's next_run_at by one recurrence step. Returns None
+    for ONCE (the schedule has nothing left to do after it fires)."""
+    step = RECURRENCE_STEPS.get(recurrence)
+    if step is None:
+        return None
+    current = datetime.strptime(current_next_run_iso, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    nxt = current + step
+    # If the schedule fell behind (e.g. server was down), skip forward to the
+    # next future occurrence instead of rapid-firing a backlog of runs.
+    while nxt <= now:
+        nxt += step
+    return nxt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")

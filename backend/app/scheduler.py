@@ -1,0 +1,86 @@
+"""Background execution of recurring agent commerce (the Bryntum-driven
+Agent Operations Schedule).
+
+This is the deterministic bridge between a persisted `scheduled_tasks` row
+and a real task execution: on every poll tick it finds schedules whose
+`next_run_at` has arrived, spawns a genuine `run_task()` through the normal
+agent -> policy -> PayPal pipeline (no shortcuts, no simulated outcomes),
+and advances the schedule's `next_run_at` by its recurrence.
+
+Runs either in-process (default — convenient for local/dev and this sandbox,
+controlled by Settings.run_scheduler_inprocess) or as a standalone process
+via worker.py for a real separate Render worker service in production.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+
+from app.agent.orchestrator import emit, run_task
+from app.database import models
+
+logger = logging.getLogger("agentauth.scheduler")
+
+POLL_INTERVAL_SECONDS = 15
+
+
+async def run_due_schedules() -> int:
+    """Check for due scheduled tasks and trigger real execution for each.
+    Returns the number of tasks triggered (useful for tests/logging)."""
+    now_iso = models.now_iso()
+    due = models.list_due_scheduled_tasks(now_iso)
+    triggered = 0
+    for sched in due:
+        agent = models.get_agent(sched["agent_id"])
+        if not agent or agent["status"] != "ACTIVE":
+            # Agent no longer exists/active — push the schedule forward so it
+            # doesn't spin hot, but never fabricate a run for a dead agent.
+            nxt = models.compute_next_run(sched["next_run_at"], sched["recurrence"])
+            if nxt:
+                models.update_scheduled_task(sched["id"], next_run_at=nxt)
+            else:
+                models.update_scheduled_task(sched["id"], status="CANCELLED")
+            continue
+
+        task = models.create_task(
+            sched["agent_id"], sched["prompt"], sched.get("max_amount"),
+            scheduled_task_id=sched["id"],
+        )
+        await emit(
+            "SCHEDULED_TASK_TRIGGERED",
+            f"Scheduled task fired for {agent['name']}: \"{sched['prompt'][:80]}\"",
+            task_id=task["id"], agent_id=agent["id"],
+            payload={"scheduled_task_id": sched["id"], "recurrence": sched["recurrence"]},
+        )
+
+        nxt = models.compute_next_run(sched["next_run_at"], sched["recurrence"])
+        models.update_scheduled_task(
+            sched["id"],
+            last_run_at=now_iso,
+            last_task_id=task["id"],
+            next_run_at=nxt or sched["next_run_at"],
+            status="ACTIVE" if nxt else "COMPLETED",
+        )
+
+        asyncio.create_task(run_task(task["id"]))
+        triggered += 1
+    return triggered
+
+
+async def scheduler_loop(stop_event: "asyncio.Event | None" = None) -> None:
+    """Infinite polling loop. Pass a stop_event for graceful shutdown/tests."""
+    logger.info("Scheduler loop started (poll every %ss).", POLL_INTERVAL_SECONDS)
+    while not (stop_event and stop_event.is_set()):
+        try:
+            n = await run_due_schedules()
+            if n:
+                logger.info("Triggered %d scheduled task(s).", n)
+        except Exception:  # noqa: BLE001
+            logger.exception("Scheduler tick failed")
+        try:
+            if stop_event:
+                await asyncio.wait_for(stop_event.wait(), timeout=POLL_INTERVAL_SECONDS)
+            else:
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+        except asyncio.TimeoutError:
+            pass

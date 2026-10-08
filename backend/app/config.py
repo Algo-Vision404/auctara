@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     channel3_api_key: str = ""
     channel3_base_url: str = "https://api.trychannel3.com"
 
+    # Scheduler (Bryntum-driven Agent Operations Schedule).
+    # True: the web process itself polls and fires due scheduled tasks
+    # (simplest — what this sandbox and `docker-compose up` use).
+    # False: run `python worker.py` as a separate process/Render worker
+    # service instead, and leave this off on the web service so recurring
+    # tasks aren't triggered twice.
+    run_scheduler_inprocess: bool = True
+
     @property
     def paypal_base_url(self) -> str:
         if self.paypal_environment.lower() == "live":

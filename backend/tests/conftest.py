@@ -18,6 +18,10 @@ def clean_db(tmp_path, monkeypatch):
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "")
     monkeypatch.setenv("PAYPAL_CLIENT_SECRET", "")
     monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    # Tests drive scheduling logic directly (test_scheduler.py) rather than
+    # via the real background poll loop, so keep it off during API/app tests
+    # for determinism and speed.
+    monkeypatch.setenv("RUN_SCHEDULER_INPROCESS", "false")
 
     from app.config import get_settings
     get_settings.cache_clear()
