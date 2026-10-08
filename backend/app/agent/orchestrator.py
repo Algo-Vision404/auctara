@@ -373,14 +373,16 @@ async def execute_payment(tx_id: str) -> None:
     agent_id = tx["agent_id"]
     task_id = tx["task_id"]
     settings = get_settings()
+    task = models.get_task(task_id)
+    frontend_origin = (task and task.get("frontend_origin")) or settings.frontend_url
 
     try:
         order = await paypal_orders.create_order(
             amount=tx["expected_amount"],
             currency="USD",
             description=f"{tx['merchant']} — {tx.get('reason', '')}"[:120],
-            return_url=f"{settings.frontend_url}/transactions/{tx_id}?paypal=return",
-            cancel_url=f"{settings.frontend_url}/transactions/{tx_id}?paypal=cancel",
+            return_url=f"{frontend_origin}/transactions/{tx_id}?paypal=return",
+            cancel_url=f"{frontend_origin}/transactions/{tx_id}?paypal=cancel",
             custom_id=tx_id,
         )
     except PayPalError as exc:

@@ -113,6 +113,7 @@ def run_migrations() -> None:
     conn = get_connection()
     conn.executescript(SCHEMA)
     _ensure_column(conn, "transactions", "paypal_approve_url", "TEXT")
+    _ensure_column(conn, "tasks", "frontend_origin", "TEXT")
 
 
 def _ensure_column(conn, table: str, column: str, coltype: str) -> None:

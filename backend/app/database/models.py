@@ -86,12 +86,14 @@ def get_active_policy(agent_id: str) -> Optional[dict]:
 
 
 # ------------------------------------------------------------------ tasks --
-def create_task(agent_id: str, prompt: str, max_amount: float | None) -> dict:
+def create_task(agent_id: str, prompt: str, max_amount: float | None,
+                 frontend_origin: str | None = None) -> dict:
     conn = get_connection()
     task_id = new_id("task")
     conn.execute(
-        "INSERT INTO tasks (id, agent_id, prompt, max_amount, status) VALUES (?,?,?,?, 'CREATED')",
-        (task_id, agent_id, prompt, max_amount),
+        "INSERT INTO tasks (id, agent_id, prompt, max_amount, status, frontend_origin) "
+        "VALUES (?,?,?,?, 'CREATED', ?)",
+        (task_id, agent_id, prompt, max_amount, frontend_origin),
     )
     return get_task(task_id)
 
