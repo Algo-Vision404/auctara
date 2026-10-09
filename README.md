@@ -105,9 +105,13 @@ HMAC-SHA256 chained audit log, Server-Sent Events for live streaming, an
 in-process (or standalone-worker) scheduler for recurring delegated tasks.
 
 **Frontend:** Next.js 15 (App Router, TypeScript), Tailwind CSS v4,
-`next-themes`, AG Grid Community (the Commerce Ledger / Agent Operations
-Console), [Bryntum Scheduler](https://bryntum.com/products/scheduler/) (the
-Agent Operations Schedule timeline), Lucide React.
+`next-themes`, AG Grid Enterprise (the Commerce Ledger / Agent Operations
+Console: row grouping, aggregation, status bar, set filters), used without a
+license key per AG Grid's own sanctioned guidance for hackathon use (shows
+the standard unlicensed watermark and a console warning, by design),
+[Bryntum Scheduler](https://bryntum.com/products/scheduler/) (the Agent
+Operations Schedule timeline, likewise an unlicensed trial build), Lucide
+React.
 
 ## Beyond the core: how each integration earns its place
 
@@ -117,11 +121,12 @@ changes who is allowed to authorize money: that is still, always, the
 deterministic policy engine in `backend/app/guardrails/`.
 
 - **AG Grid: Agent Operations Console** (`/ledger`). The Commerce Ledger is
-  a full operations grid over real transactions: filtering, column
-  visibility, CSV export, and a row-click evidence-chain side panel showing
-  the real Agent Proposed → Policy Evaluated → PayPal Executed → Audit
-  Verified timeline for that transaction, with live links to the original
-  listing and the full audit trail.
+  a full AG Grid Enterprise operations grid over real transactions: row
+  grouping (by agent, by outcome), aggregation, a status bar, set filters,
+  column visibility, CSV export, and a row-click evidence-chain side panel
+  showing the real Agent Proposed → Policy Evaluated → PayPal Executed →
+  Audit Verified timeline for that transaction, with live links to the
+  original listing and the full audit trail.
 - **Channel3: real product discovery** (`backend/app/search/channel3.py`).
   The agent's research step can search Channel3's live product graph for
   real merchants, prices, and availability instead of relying solely on raw
@@ -134,8 +139,11 @@ deterministic policy engine in `backend/app/guardrails/`.
   (`backend/app/scheduler.py`) fires each one, when due, through the exact
   same research → policy → PayPal pipeline as an on-demand task. Every
   occurrence is independently evaluated, not a fire-and-forget cron stub.
-  The frontend visualizes it with Bryntum's native recurrence engine
-  (`FREQ=DAILY/WEEKLY/MONTHLY`), not a hand-rolled calendar.
+  The Bryntum timeline plots one real event per past firing, colored by its
+  real outcome (completed, blocked/failed, cancelled, in progress), plus a
+  single dashed "next run" marker per live schedule at its real
+  `next_run_at`. Nothing about the timeline is a synthetic repeat pattern;
+  every event you see corresponds to a real row in the database.
 - **APIMatic: the PayPal integration itself** (`docs/APIMATIC.md`). The
   PayPal client (`backend/app/paypal/`) was migrated off a hand-rolled OAuth2
   + httpx REST client onto PayPal's own official, APIMatic-generated Server
@@ -243,16 +251,18 @@ source .venv/bin/activate
 pytest -q
 ```
 
-44 tests. Covers: the deterministic policy engine (allow/approval/block
+86 tests. Covers: the deterministic policy engine (allow/approval/block
 thresholds, daily/monthly limits, velocity, category rules, price-variance
 tolerance), the transaction state machine (valid/invalid transitions,
 blocked/approval/success/failure flows), the HMAC audit chain (canonical
-serialization, tamper detection), budget-ledger atomicity, mocked PayPal
-order/authorize/capture/void flows, the Agent Operations Schedule
+serialization, tamper detection), budget-ledger atomicity, the real
+APIMatic-generated PayPal Server SDK order/authorize/capture/void flows and
+error translation, the agent's clarification (`NEEDS_INPUT`) flow and
+zero-amount proposal validation guard, the Agent Operations Schedule
 (recurrence math, due-schedule firing through the real task pipeline,
-inactive-agent safety), and the core FastAPI routes (including a check that
-a missing AI key fails the task visibly instead of silently faking a
-result).
+inactive-agent safety, run-history retrieval), and the core FastAPI routes
+(including a check that a missing AI key fails the task visibly instead of
+silently faking a result).
 
 ## Demo
 
