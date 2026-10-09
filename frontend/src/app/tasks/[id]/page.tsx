@@ -42,7 +42,12 @@ export default function TaskPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <TopBar title="Task Execution" subtitle="Live, backend-driven agent activity." />
+      <TopBar
+        title="Task Execution"
+        subtitle="Live, backend-driven agent activity."
+        backHref={task ? `/agents/${task.agent_id}` : "/agents"}
+        backLabel="Back to agent"
+      />
       <main className="mx-auto w-full max-w-2xl flex-1 space-y-6 px-5 py-6 md:px-8">
         {error && (
           <div className="card-surface border-l-4 border-l-[var(--color-danger)] p-4 text-sm text-[var(--color-danger)]">
