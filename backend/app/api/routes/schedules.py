@@ -83,6 +83,14 @@ def update_schedule(sched_id: str, req: UpdateScheduleRequest):
     return models.update_scheduled_task(sched_id, **fields)
 
 
+@router.get("/schedules/{sched_id}/runs")
+def get_schedule_runs(sched_id: str):
+    sched = models.get_scheduled_task(sched_id)
+    if not sched:
+        raise HTTPException(status_code=404, detail="Scheduled task not found")
+    return models.list_runs_for_schedule(sched_id)
+
+
 @router.delete("/schedules/{sched_id}")
 def delete_schedule(sched_id: str):
     sched = models.get_scheduled_task(sched_id)

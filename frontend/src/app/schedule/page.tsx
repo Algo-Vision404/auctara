@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { TopBar } from "@/components/nav/TopBar";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { api, ApiError } from "@/lib/api";
-import { Agent, Recurrence, ScheduledTask } from "@/lib/types";
+import { Agent, Recurrence, ScheduledTask, ScheduleRun } from "@/lib/types";
 import { fullDateTime, money, titleCase } from "@/lib/format";
 import { CalendarClock, Pause, Play, Ban, Trash2, ArrowRight, Loader2, CircleCheck } from "lucide-react";
 
@@ -35,8 +36,10 @@ function toLocalInputValue(d: Date): string {
 }
 
 export default function SchedulePage() {
+  const router = useRouter();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [schedules, setSchedules] = useState<ScheduledTask[]>([]);
+  const [runsBySchedule, setRunsBySchedule] = useState<Record<string, ScheduleRun[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState<string | null>(null);
 
@@ -53,12 +56,29 @@ export default function SchedulePage() {
     let mounted = true;
     const load = () => {
       Promise.all([api.listAgents(), api.listSchedules()])
-        .then(([a, s]) => {
+        .then(async ([a, s]) => {
           if (!mounted) return;
           setAgents(a);
           setSchedules(s);
           setError(null);
           if (!agentId && a.length > 0) setAgentId(a[0].id);
+
+          // Run history per schedule, for the timeline's real execution
+          // record (see ScheduleBoard). One request per schedule, same
+          // per-item fetch pattern already used elsewhere in this app (e.g.
+          // the ledger's agent-name lookups) - fine at this project's scale,
+          // and simpler than adding a bulk endpoint for what is always a
+          // short, human-curated list of standing instructions.
+          try {
+            const pairs = await Promise.all(
+              s.map(async (sched) => [sched.id, await api.listScheduleRuns(sched.id)] as const)
+            );
+            if (!mounted) return;
+            setRunsBySchedule(Object.fromEntries(pairs));
+          } catch {
+            // Non-fatal: the board still renders (just without run history)
+            // if this secondary fetch fails; the schedules themselves loaded fine.
+          }
         })
         .catch((e) => mounted && setError(e instanceof ApiError ? e.message : "Failed to load schedule data"));
     };
@@ -229,10 +249,27 @@ export default function SchedulePage() {
         </div>
 
         <div className="card-surface min-w-0 overflow-x-auto p-3">
-          <ScheduleBoard agents={activeAgents} schedules={schedules} onEventClick={(id) => setHighlighted(id)} />
+          <ScheduleBoard
+            agents={activeAgents}
+            schedules={schedules}
+            runsBySchedule={runsBySchedule}
+            onEventClick={(scheduleId, taskId) => {
+              // A real past firing has a concrete task behind it - jump
+              // straight to its live task/transaction view. The "Next run"
+              // ghost marker has no task yet, so it just highlights that
+              // schedule's row below instead.
+              if (taskId) {
+                router.push(`/tasks/${taskId}`);
+              } else {
+                setHighlighted(scheduleId);
+              }
+            }}
+          />
           <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-            Calendar view runs on an evaluation build of a third-party scheduling widget, shown here in its own
-            light theme with a small trial watermark.
+            Solid blocks are real past firings, colored by their actual outcome (green completed, red
+            blocked/failed, blue in progress); dashed outlines are each schedule&apos;s real next run. Click
+            any past firing to open its live task. Calendar view runs on an evaluation build of a
+            third-party scheduling widget, shown here in its own light theme with a small trial watermark.
           </p>
         </div>
 

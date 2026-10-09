@@ -111,3 +111,44 @@ def test_compute_next_run_skips_backlog_to_the_future():
 
 def test_compute_next_run_once_returns_none():
     assert models.compute_next_run("2020-01-01T00:00:00.000000Z", "ONCE") is None
+
+
+@pytest.mark.asyncio
+async def test_schedule_runs_reflects_real_firing_history(monkeypatch):
+    """list_runs_for_schedule (and GET /schedules/{id}/runs) is what lets the
+    Bryntum timeline plot a schedule's actual past executions, not just a
+    synthetic repeating pattern - so it needs to return every task this
+    schedule really spawned, each joined with whatever transaction outcome
+    exists for it so far (None before the pipeline has created one yet)."""
+    monkeypatch.setattr(scheduler, "run_task", lambda task_id: asyncio.sleep(0))
+
+    agent = _make_agent()
+    sched = models.create_scheduled_task(
+        agent["id"], "Buy printer paper", 50, "DAILY", "2020-01-01T00:00:00.000000Z"
+    )
+
+    n = await scheduler.run_due_schedules()
+    assert n == 1
+
+    runs = models.list_runs_for_schedule(sched["id"])
+    assert len(runs) == 1
+    assert runs[0]["task_status"] == "CREATED"
+    # The fake run_task never advances the pipeline, so no transaction has
+    # been created for this task yet - must be reported as None, never
+    # fabricated, so the frontend can render "pending" rather than a fake
+    # outcome.
+    assert runs[0]["transaction_id"] is None
+    assert runs[0]["fired_at"] is not None
+
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    with TestClient(app) as client:
+        resp = client.get(f"/schedules/{sched['id']}/runs")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["task_id"] == runs[0]["task_id"]
+
+        missing = client.get("/schedules/sched_doesnotexist/runs")
+        assert missing.status_code == 404
