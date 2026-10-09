@@ -10,7 +10,9 @@ import {
   themeQuartz,
   type ColDef,
   type ICellRendererParams,
+  type StatusPanelDef,
 } from "ag-grid-community";
+import { AllEnterpriseModule } from "ag-grid-enterprise";
 import { Transaction, Agent } from "@/lib/types";
 import { money, titleCase, shortTime } from "@/lib/format";
 import { Badge, decisionTone, stateTone } from "@/components/ui/Badge";
@@ -25,9 +27,21 @@ import {
   ExternalLink,
   ArrowUpRight,
   PackageSearch,
+  Rows3,
+  CheckCircle2,
+  TriangleAlert,
+  XCircle,
 } from "lucide-react";
 
-ModuleRegistry.registerModules([AllCommunityModule]);
+// Row Grouping, the drag-to-group panel, Set Filters, and the Status Bar
+// below are AG Grid Enterprise features. This project has no Enterprise
+// license key, so they render with AG Grid's standard unlicensed watermark
+// and a console warning - which AG Grid's own team has said is expected and
+// fine for hackathon/evaluation use (not something to "fix" away). We use
+// them anyway because they're the real feature, not a mock of it: an agent
+// operations console genuinely benefits from grouping transactions by agent
+// and seeing live aggregate totals, not just a flat row list.
+ModuleRegistry.registerModules([AllCommunityModule, AllEnterpriseModule]);
 
 const lightTheme = themeQuartz.withParams({
   backgroundColor: "#FFFFFF",
@@ -74,6 +88,7 @@ const ALL_COLUMNS = [
   "merchant",
   "category",
   "amount",
+  "price_check",
   "decision",
   "state",
   "paypal_status",
@@ -102,6 +117,24 @@ function MerchantCell(p: ICellRendererParams<ConsoleRow>) {
         <PackageSearch size={14} className="text-[var(--color-text-muted)]" />
       ) : null}
       <span className="truncate">{p.data.merchant || "N/A"}</span>
+      {p.data.source_url && (
+        // The detail panel already links to the original listing, but
+        // requiring two clicks (open panel, then click the link) to check
+        // where a price actually came from is friction a reviewer skimming
+        // dozens of rows won't take. stopPropagation keeps this from also
+        // triggering the row's onRowClicked (which would pop the detail
+        // panel open behind the new tab).
+        <a
+          href={p.data.source_url}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          title="View original listing"
+          className="ml-auto shrink-0 text-[var(--color-text-muted)] hover:text-[var(--color-accent)]"
+        >
+          <ExternalLink size={13} />
+        </a>
+      )}
     </div>
   );
 }
@@ -120,6 +153,40 @@ function PaypalCell(p: ICellRendererParams<ConsoleRow>) {
   if (!p.data?.paypal_status) return <span className="text-[var(--color-text-muted)]">N/A</span>;
   const tone = PAYPAL_TONE[p.data.paypal_status] || "muted";
   return <Badge tone={tone}>{titleCase(p.data.paypal_status)}</Badge>;
+}
+
+// Surfaces the policy engine's actual price-variance check (expected_amount,
+// what the agent proposed, vs actual_amount, what PayPal/the research step
+// confirmed at execution time) instead of only exposing it three clicks deep
+// in the evidence-chain timeline. Real numbers straight from the backend -
+// there is no separate "drift" field anywhere, this is computed client-side
+// from the same two columns a viewer could otherwise compare by eye, just
+// surfaced as a single glanceable signal across hundreds of rows.
+function PriceCheckCell(p: ICellRendererParams<ConsoleRow>) {
+  const tx = p.data;
+  if (!tx || tx.expected_amount == null || tx.actual_amount == null) {
+    return <span className="text-[var(--color-text-muted)]">N/A</span>;
+  }
+  const diff = tx.actual_amount - tx.expected_amount;
+  const pct = tx.expected_amount !== 0 ? (diff / tx.expected_amount) * 100 : 0;
+  const absPct = Math.abs(pct);
+
+  if (absPct < 0.01) {
+    return (
+      <Badge tone="success" icon={<CheckCircle2 size={13} />}>
+        Exact match
+      </Badge>
+    );
+  }
+  const tone = absPct <= 5 ? "warning" : "danger";
+  const Icon = absPct <= 5 ? TriangleAlert : XCircle;
+  const sign = diff > 0 ? "+" : "";
+  return (
+    <Badge tone={tone} icon={<Icon size={13} />}>
+      {sign}
+      {money(diff, tx.currency || "USD")} ({absPct.toFixed(1)}%)
+    </Badge>
+  );
 }
 
 // AG Grid's built in "No Rows To Show" overlay is generic, unstyled text
@@ -157,6 +224,12 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
   const [maxAmount, setMaxAmount] = useState("");
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(DEFAULT_HIDDEN);
+  // Defaults to grouping by agent, since "what has each agent been doing"
+  // is the first question this console answers - but it's just a starting
+  // point: the AG Grid Enterprise row-group panel (always visible below)
+  // lets the viewer drag any other groupable column header in instead, or
+  // stack a second level on top, same as this dropdown's options.
+  const [groupBy, setGroupBy] = useState<string>("agent_name");
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<Transaction | null>(null);
 
@@ -192,6 +265,17 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
     [transactions, agentNameById]
   );
 
+  // If the detail panel is open for a transaction that then changes (a live
+  // SSE-driven update flows a fresh object in via the `transactions` prop),
+  // re-point `selected` at that fresh copy so the panel's header badges and
+  // timeline refetch instead of silently going stale while the grid row
+  // beneath it keeps moving.
+  useEffect(() => {
+    if (!selected) return;
+    const fresh = rows.find((r) => r.id === selected.id);
+    if (fresh && fresh !== selected) setSelected(fresh);
+  }, [rows, selected]);
+
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
       if (agentFilter && r.agent_id !== agentFilter) return false;
@@ -213,10 +297,27 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
         minWidth: 170,
         cellClass: "font-mono-ui",
       },
-      agent_name: { headerName: "Agent", field: "agent_name", minWidth: 150 },
+      agent_name: {
+        headerName: "Agent",
+        field: "agent_name",
+        minWidth: 150,
+        enableRowGroup: true,
+        filter: "agSetColumnFilter",
+        rowGroup: groupBy === "agent_name",
+        hide: groupBy === "agent_name",
+      },
       task_prompt: { headerName: "Task", field: "task_prompt", minWidth: 220, flex: 1 },
       merchant: { headerName: "Merchant", field: "merchant", minWidth: 180, cellRenderer: MerchantCell },
-      category: { headerName: "Category", field: "category", minWidth: 130, valueFormatter: (p) => titleCase(p.value) },
+      category: {
+        headerName: "Category",
+        field: "category",
+        minWidth: 130,
+        valueFormatter: (p) => titleCase(p.value),
+        enableRowGroup: true,
+        filter: "agSetColumnFilter",
+        rowGroup: groupBy === "category",
+        hide: groupBy === "category",
+      },
       amount: {
         headerName: "Amount",
         field: "amount",
@@ -224,28 +325,126 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
         valueFormatter: (p) => money(p.value, p.data?.currency || "USD"),
         cellClass: "font-mono-ui",
         type: "numericColumn",
+        enableValue: true,
+        aggFunc: "sum",
       },
-      decision: { headerName: "Decision", field: "decision", cellRenderer: DecisionCell, minWidth: 150 },
-      state: { headerName: "State", field: "state", cellRenderer: StateCell, minWidth: 140 },
-      paypal_status: { headerName: "Payment", field: "paypal_status", cellRenderer: PaypalCell, minWidth: 160 },
+      price_check: {
+        headerName: "Price Check",
+        colId: "price_check",
+        minWidth: 170,
+        // Derived purely from two already-real backend fields (what the
+        // agent proposed vs. what was actually verified at execution time) -
+        // see PriceCheckCell. valueGetter (not `field`) so sorting/row-group
+        // aggregation on this column operate on the actual dollar drift,
+        // not the rendered badge text.
+        valueGetter: (p) =>
+          p.data?.expected_amount != null && p.data?.actual_amount != null
+            ? p.data.actual_amount - p.data.expected_amount
+            : null,
+        cellRenderer: PriceCheckCell,
+        enableCellChangeFlash: true,
+      },
+      decision: {
+        headerName: "Decision",
+        field: "decision",
+        cellRenderer: DecisionCell,
+        minWidth: 150,
+        enableCellChangeFlash: true,
+        enableRowGroup: true,
+        filter: "agSetColumnFilter",
+        rowGroup: groupBy === "decision",
+        hide: groupBy === "decision",
+        tooltipValueGetter: (p) => p.data?.decision_reason || undefined,
+      },
+      state: {
+        headerName: "State",
+        field: "state",
+        cellRenderer: StateCell,
+        minWidth: 140,
+        enableCellChangeFlash: true,
+        enableRowGroup: true,
+        filter: "agSetColumnFilter",
+        rowGroup: groupBy === "state",
+        hide: groupBy === "state",
+        // Only ever populated for FAILED/BLOCKED/etc rows, so a healthy
+        // COMPLETED row simply shows no tooltip at all.
+        tooltipValueGetter: (p) => p.data?.error || undefined,
+      },
+      paypal_status: {
+        headerName: "Payment",
+        field: "paypal_status",
+        cellRenderer: PaypalCell,
+        minWidth: 160,
+        enableCellChangeFlash: true,
+        enableRowGroup: true,
+        filter: "agSetColumnFilter",
+        rowGroup: groupBy === "paypal_status",
+        hide: groupBy === "paypal_status",
+      },
       authorized_amount: {
         headerName: "Authority",
         field: "authorized_amount",
         minWidth: 110,
         valueFormatter: (p) => (p.value ? money(p.value) : "N/A"),
         cellClass: "font-mono-ui",
+        enableCellChangeFlash: true,
       },
       paypal_order_id: { headerName: "PayPal Order", field: "paypal_order_id", minWidth: 170, cellClass: "font-mono-ui" },
-      paypal_capture_id: { headerName: "Capture ID", field: "paypal_capture_id", minWidth: 170, cellClass: "font-mono-ui" },
+      paypal_capture_id: {
+        headerName: "Capture ID",
+        field: "paypal_capture_id",
+        minWidth: 170,
+        cellClass: "font-mono-ui",
+        enableCellChangeFlash: true,
+      },
       id: { headerName: "Transaction ID", field: "id", minWidth: 170, cellClass: "font-mono-ui" },
     };
     return ALL_COLUMNS.filter((c) => !hiddenColumns.has(c)).map((c) => defs[c]);
-  }, [hiddenColumns]);
+  }, [hiddenColumns, groupBy]);
 
   const defaultColDef = useMemo<ColDef>(
     () => ({ sortable: true, resizable: true, filter: true, floatingFilter: false }),
     []
   );
+
+  // The auto-generated group column AG Grid Enterprise builds for whichever
+  // field is currently grouped (the dropdown below, or a column dragged
+  // into the row-group panel). Header name is intentionally generic ("Group")
+  // rather than hardcoded to "Agent", since this same column is reused no
+  // matter which field ends up grouped.
+  const autoGroupColumnDef = useMemo<ColDef>(
+    () => ({
+      headerName: "Group",
+      minWidth: 220,
+      cellRendererParams: { suppressCount: false },
+    }),
+    []
+  );
+
+  const statusBar = useMemo<{ statusPanels: StatusPanelDef[] }>(
+    () => ({
+      statusPanels: [
+        { statusPanel: "agTotalAndFilteredRowCountComponent", align: "left" },
+        { statusPanel: "agAggregationComponent", align: "right" },
+      ],
+    }),
+    []
+  );
+
+  function handleGroupByChange(value: string) {
+    setGroupBy(value);
+    if (value) {
+      // A column that's hidden via the "Columns" menu has no colDef at all,
+      // so it can't be grouped - force it visible when it becomes the
+      // active group field.
+      setHiddenColumns((prev) => {
+        if (!prev.has(value)) return prev;
+        const next = new Set(prev);
+        next.delete(value);
+        return next;
+      });
+    }
+  }
 
   function exportCsv() {
     gridRef.current?.api.exportDataAsCsv({ fileName: "agentauth-operations-console.csv" });
@@ -311,6 +510,22 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-1.5">
+              <Rows3 size={14} className="text-[var(--color-text-muted)]" />
+              <select
+                value={groupBy}
+                onChange={(e) => handleGroupByChange(e.target.value)}
+                className="bg-transparent text-sm outline-none"
+                title="Group rows by"
+              >
+                <option value="">No grouping</option>
+                <option value="agent_name">Group by agent</option>
+                <option value="category">Group by category</option>
+                <option value="decision">Group by decision</option>
+                <option value="state">Group by state</option>
+                <option value="paypal_status">Group by payment status</option>
+              </select>
+            </div>
             <select
               value={agentFilter}
               onChange={(e) => setAgentFilter(e.target.value)}
@@ -339,8 +554,8 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
               className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1.5 text-sm outline-none focus:border-[var(--color-accent)]"
             >
               <option value="">All states</option>
-              {["CREATED", "RESEARCHING", "PROPOSED", "POLICY_CHECK", "AWAITING_APPROVAL", "AUTHORIZED",
-                "VERIFYING", "CAPTURED", "COMPLETED", "BLOCKED", "VOIDED", "FAILED"].map((s) => (
+              {["CREATED", "RESEARCHING", "NEEDS_INPUT", "PROPOSED", "POLICY_CHECK", "AWAITING_APPROVAL", "AUTHORIZED",
+                "VERIFYING", "CAPTURED", "COMPLETED", "BLOCKED", "VOIDED", "FAILED", "CANCELLED"].map((s) => (
                 <option key={s} value={s}>
                   {titleCase(s)}
                 </option>
@@ -381,13 +596,39 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
           </div>
         </div>
 
-        <div style={{ height: 560, width: "100%" }}>
+        <div style={{ height: 640, width: "100%" }}>
           {mounted && (
             <AgGridReact
               ref={gridRef}
               rowData={filteredRows}
+              // Required for AG Grid's immutable-data diffing: with a stable
+              // row id, passing a new `rowData` array (as the ledger page
+              // does whenever a real backend event arrives over SSE) only
+              // touches the rows that actually changed - existing rows keep
+              // their selection/scroll state, and `enableCellChangeFlash`
+              // above can highlight exactly which cells a live update
+              // changed, instead of the grid looking like it silently
+              // re-rendered from scratch every few seconds.
+              getRowId={(p) => p.data.id}
               columnDefs={columnDefs}
               defaultColDef={defaultColDef}
+              autoGroupColumnDef={autoGroupColumnDef}
+              // Enterprise row grouping: the dropdown above sets one column's
+              // `rowGroup: true`, but this panel also lets a viewer drag any
+              // other groupable column header in directly, or stack a second
+              // grouping level on top of the first, without touching code.
+              rowGroupPanelShow="always"
+              groupDefaultExpanded={1}
+              // Enterprise range selection + the status bar below: drag
+              // across a block of (e.g.) Amount cells to see a live
+              // sum/avg/count computed at the bottom, on top of each group
+              // row's own aggregated total.
+              cellSelection
+              statusBar={statusBar}
+              // Simple, reliable native tooltips for the decision_reason /
+              // error tooltipValueGetters above - no custom tooltip
+              // component needed for plain text.
+              enableBrowserTooltips
               theme={resolvedTheme === "dark" ? darkTheme : lightTheme}
               pagination
               paginationPageSize={20}
