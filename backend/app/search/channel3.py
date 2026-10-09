@@ -14,9 +14,13 @@ Channel3Error propagates so the orchestrator can surface a genuine failure
 """
 from __future__ import annotations
 
+import logging
+
 import httpx
 
 from app.config import get_settings
+
+logger = logging.getLogger("agentauth.channel3")
 
 
 class Channel3Error(Exception):
@@ -81,10 +85,19 @@ async def search_products(query: str, max_price: float | None = None, limit: int
             resp.raise_for_status()
             data = resp.json()
     except httpx.HTTPStatusError as exc:
+        # Channel3's own documented response body for this request -
+        # legitimate detail to carry through, not internal plumbing.
         detail = exc.response.text[:300]
         raise Channel3Error(f"Channel3 returned HTTP {exc.response.status_code}: {detail}") from exc
     except httpx.HTTPError as exc:
-        raise Channel3Error(f"Channel3 is unreachable: {exc}") from exc
+        # A transport-level failure (DNS, timeout, connection refused, TLS)
+        # never reached Channel3 at all, so str(exc) is raw httpx/httpcore
+        # internals (connection reprs, object addresses) - not anything
+        # Channel3 returned. Log the real detail, keep it out of the
+        # message a caller/user ever sees, same treatment as the PayPal
+        # and page-fetch clients give this exact failure category.
+        logger.warning("Channel3 unreachable: %s", exc)
+        raise Channel3Error("Channel3 is temporarily unreachable. Please try again shortly.") from exc
 
     products = data.get("products") or []
     normalized = [_normalize(p) for p in products]
