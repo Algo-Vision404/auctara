@@ -67,8 +67,15 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
+    # Full detail always goes to the server log; the HTTP response never
+    # echoes raw exception text back to the client; that could leak internal
+    # file paths, SQL fragments, library names, or other implementation
+    # detail to whoever's calling the API.
     logger.exception("Unhandled error on %s", request.url)
-    return JSONResponse(status_code=500, content={"detail": f"Internal error: {exc}"})
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Something went wrong processing that request. Please try again."},
+    )
 
 
 app.include_router(health.router, tags=["health"])

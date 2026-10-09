@@ -51,6 +51,7 @@ export function stateTone(state: string | null | undefined): Tone {
     case "AUTHORIZED":
       return "success";
     case "AWAITING_APPROVAL":
+    case "NEEDS_INPUT":
       return "warning";
     case "BLOCKED":
     case "VOIDED":

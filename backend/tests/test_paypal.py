@@ -190,3 +190,62 @@ async def test_create_order_translates_api_exception(monkeypatch):
     assert err.status_code == 400
     assert err.detail["name"] == "INVALID_REQUEST"
     assert err.detail["debug_id"] == "abc123"
+
+
+@pytest.mark.asyncio
+async def test_capture_authorization_without_mock_response_is_unchanged(monkeypatch):
+    """The default (every normal transaction) path must never attach a
+    PayPal-Mock-Response option - a real capture, exactly as before this
+    feature existed."""
+    fake = FakeClient(payment_responses={
+        "capture_authorized_payment": FakeApiResponse(CapturedPayment.from_dictionary(CAPTURE_RESPONSE)),
+    })
+    monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
+
+    await paypal_orders.capture_authorization("AUTH123")
+
+    _, options = fake.payments.calls[0]
+    assert "paypal_mock_response" not in options
+
+
+@pytest.mark.asyncio
+async def test_capture_authorization_with_negative_test_attaches_mock_header(monkeypatch):
+    """Opt-in sandbox QA hook: passing one of PayPal's own documented
+    negative-testing codes must be forwarded to the SDK as the real
+    PayPal-Mock-Response header value it expects, in PayPal's documented
+    JSON shape."""
+    fake = FakeClient(payment_responses={
+        "capture_authorized_payment": FakeApiResponse(CapturedPayment.from_dictionary(CAPTURE_RESPONSE)),
+    })
+    monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
+
+    await paypal_orders.capture_authorization("AUTH123", mock_response="INSTRUMENT_DECLINED")
+
+    _, options = fake.payments.calls[0]
+    assert options["paypal_mock_response"] == '{"mock_application_codes": "INSTRUMENT_DECLINED"}'
+
+
+@pytest.mark.asyncio
+async def test_capture_authorization_negative_test_surfaces_as_real_paypal_error(monkeypatch):
+    """When PayPal's own sandbox genuinely declines a mocked capture, that
+    must surface as a real PayPalError with PayPal's real error detail,
+    exactly like any other real PayPal rejection - not a fabricated result."""
+    error_body = (
+        '{"name": "UNPROCESSABLE_ENTITY", "message": "The requested action could not be completed.", '
+        '"debug_id": "neg-test-1", "details": [{"issue": "INSTRUMENT_DECLINED"}]}'
+    )
+
+    def boom(options):
+        assert options["paypal_mock_response"] == '{"mock_application_codes": "INSTRUMENT_DECLINED"}'
+        raise ErrorException("Unprocessable", FakeHttpResponse(422, error_body))
+
+    fake = FakeClient()
+    fake.payments.capture_authorized_payment = boom
+    monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
+
+    with pytest.raises(PayPalError) as exc_info:
+        await paypal_orders.capture_authorization("AUTH123", mock_response="INSTRUMENT_DECLINED")
+
+    err = exc_info.value
+    assert err.status_code == 422
+    assert err.detail["name"] == "UNPROCESSABLE_ENTITY"

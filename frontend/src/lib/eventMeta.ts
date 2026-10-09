@@ -17,6 +17,8 @@ import {
   UserX,
   Trash2,
   XCircle,
+  MessageCircleQuestion,
+  MessageCircle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -29,9 +31,9 @@ export interface EventMeta {
 const META: Record<string, EventMeta> = {
   TASK_CREATED: { icon: ScrollText, tone: "info", label: "Task created" },
   AGENT_STARTED: { icon: Bot, tone: "info", label: "Agent started" },
-  CHANNEL3_SEARCH_STARTED: { icon: PackageSearch, tone: "info", label: "Channel3 product search" },
-  CHANNEL3_SEARCH_COMPLETED: { icon: PackageSearch, tone: "accent", label: "Channel3 results" },
-  CHANNEL3_SEARCH_FAILED: { icon: TriangleAlert, tone: "danger", label: "Channel3 search failed" },
+  CHANNEL3_SEARCH_STARTED: { icon: PackageSearch, tone: "info", label: "Product search" },
+  CHANNEL3_SEARCH_COMPLETED: { icon: PackageSearch, tone: "accent", label: "Product results" },
+  CHANNEL3_SEARCH_FAILED: { icon: TriangleAlert, tone: "danger", label: "Product search failed" },
   SEARCH_STARTED: { icon: Search, tone: "info", label: "Search started" },
   SEARCH_COMPLETED: { icon: Search, tone: "accent", label: "Search completed" },
   SEARCH_FAILED: { icon: TriangleAlert, tone: "danger", label: "Search failed" },
@@ -66,6 +68,12 @@ const META: Record<string, EventMeta> = {
   PAYMENT_VOIDED: { icon: ShieldX, tone: "danger", label: "Payment voided" },
   TRANSACTION_COMPLETED: { icon: CircleCheck, tone: "success", label: "Transaction completed" },
   TRANSACTION_FAILED: { icon: TriangleAlert, tone: "danger", label: "Transaction failed" },
+  // The agent paused to ask the human something (a clarifying question, or
+  // a "found X instead, want it?" check-in) instead of guessing or just
+  // giving up - not a failure, so it gets its own neutral/warning icon
+  // rather than reusing TRANSACTION_FAILED's TriangleAlert.
+  AGENT_ASKED_QUESTION: { icon: MessageCircleQuestion, tone: "warning", label: "Agent asked a question" },
+  USER_REPLIED: { icon: MessageCircle, tone: "accent", label: "You replied" },
   // Agent lifecycle: retiring/deleting an agent and the resulting in-flight
   // cancellations are administrative actions, not pipeline outcomes, so they
   // get their own neutral/muted icons rather than reusing POLICY_BLOCKED's

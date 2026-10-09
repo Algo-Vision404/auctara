@@ -165,7 +165,14 @@ def test_task_without_openrouter_key_fails_visibly_not_silently():
             t = client.get(f"/tasks/{task['id']}").json()
             status = t["status"]
             if status == "FAILED":
-                assert "OpenRouter" in (t["error"] or "")
+                # User-facing error must be plain, in-character language, not
+                # raw provider/technical detail (no "OpenRouter", env var
+                # names, or URLs - see app/agent/llm_errors.py), but it must
+                # still say an administrator needs to act.
+                error = t["error"] or ""
+                assert "administrator" in error
+                assert "OpenRouter" not in error
+                assert "OPENROUTER" not in error
                 break
         assert status == "FAILED"
 
@@ -208,3 +215,59 @@ def test_activity_feed_scoped_to_task():
         assert len(scoped) > 0
         assert all(e["task_id"] == task_a["id"] for e in scoped)
         assert not any(e["task_id"] == task_b["id"] for e in scoped)
+
+
+def test_negative_test_options_endpoint():
+    """The frontend must get its list of PayPal-sanctioned sandbox
+    negative-testing codes from the backend, not hardcode its own copy."""
+    with TestClient(app) as client:
+        resp = client.get("/tasks/negative-test-options")
+        assert resp.status_code == 200
+        codes = {row["code"] for row in resp.json()}
+        assert "INSTRUMENT_DECLINED" in codes
+        assert "TRANSACTION_REFUSED" in codes
+        assert "INTERNAL_SERVER_ERROR" in codes
+
+
+def test_create_task_rejects_invalid_negative_test_code():
+    """Only PayPal's own documented codes may be requested here - never an
+    arbitrary caller-supplied string standing in for a real PayPal response."""
+    with TestClient(app) as client:
+        payload = {
+            "name": "Negative Test Agent", "purpose": "x", "directive": "x",
+            "policy": {
+                "max_transaction_amount": 150, "approval_threshold": 100,
+                "daily_limit": 300, "monthly_limit": 2000,
+            },
+        }
+        agent = client.post("/agents", json=payload).json()
+
+        resp = client.post("/tasks", json={
+            "agent_id": agent["id"], "prompt": "Buy software",
+            "paypal_negative_test": "NOT_A_REAL_CODE",
+        })
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert any("paypal_negative_test" in str(d) for d in detail)
+
+
+def test_create_task_accepts_valid_negative_test_code():
+    with TestClient(app) as client:
+        payload = {
+            "name": "Negative Test Agent 2", "purpose": "x", "directive": "x",
+            "policy": {
+                "max_transaction_amount": 150, "approval_threshold": 100,
+                "daily_limit": 300, "monthly_limit": 2000,
+            },
+        }
+        agent = client.post("/agents", json=payload).json()
+
+        resp = client.post("/tasks", json={
+            "agent_id": agent["id"], "prompt": "Buy software",
+            "paypal_negative_test": "INSTRUMENT_DECLINED",
+        })
+        assert resp.status_code == 200
+        task_id = resp.json()["id"]
+
+        fetched = client.get(f"/tasks/{task_id}").json()
+        assert fetched["paypal_negative_test"] == "INSTRUMENT_DECLINED"

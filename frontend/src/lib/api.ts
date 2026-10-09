@@ -7,6 +7,7 @@ import type {
   Transaction,
   AuditRecord,
   ScheduledTask,
+  ScheduleRun,
   Recurrence,
 } from "./types";
 
@@ -26,18 +27,33 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
       cache: "no-store",
     });
-  } catch (err) {
-    throw new ApiError(
-      `Could not reach AgentAuth backend. Is it running? (${(err as Error).message})`,
-      0
-    );
+  } catch {
+    // Deliberately no raw browser/fetch error text here (e.g. "Failed to
+    // fetch", "NetworkError when attempting to fetch resource"): it's
+    // noise to anyone but a developer, and this single message already
+    // says exactly what the user needs to know.
+    throw new ApiError("Could not reach the AgentAuth backend. Is it running?", 0);
   }
 
   if (!res.ok) {
     let detail = `Request failed (HTTP ${res.status})`;
     try {
       const body = await res.json();
-      detail = body.detail || JSON.stringify(body);
+      // FastAPI's own validation errors (422s from a bad request body) put
+      // an array of {loc, msg, type} objects in `detail` rather than a
+      // string. Every error we deliberately raise ourselves (HTTPException)
+      // always uses a plain string, so a non-string here only ever means
+      // "the framework generated this, not us" - stringify it into
+      // something readable instead of letting an array/object reach the
+      // UI as literal "[object Object]" text.
+      if (typeof body.detail === "string" && body.detail) {
+        detail = body.detail;
+      } else if (Array.isArray(body.detail) && body.detail.length) {
+        detail = body.detail
+          .map((d: { msg?: string }) => d.msg)
+          .filter(Boolean)
+          .join("; ") || detail;
+      }
     } catch {
       /* ignore */
     }
@@ -67,8 +83,15 @@ export const api = {
 
   listTasks: (agentId?: string) => request<Task[]>(`/tasks${agentId ? `?agent_id=${agentId}` : ""}`),
   getTask: (id: string) => request<Task>(`/tasks/${id}`),
-  createTask: (payload: { agent_id: string; prompt: string; max_amount?: number | null }) =>
-    request<Task>("/tasks", { method: "POST", body: JSON.stringify(payload) }),
+  createTask: (payload: {
+    agent_id: string;
+    prompt: string;
+    max_amount?: number | null;
+    paypal_negative_test?: string | null;
+  }) => request<Task>("/tasks", { method: "POST", body: JSON.stringify(payload) }),
+  negativeTestOptions: () => request<{ code: string; description: string }[]>("/tasks/negative-test-options"),
+  respondToTask: (id: string, message: string) =>
+    request<{ status: string }>(`/tasks/${id}/respond`, { method: "POST", body: JSON.stringify({ message }) }),
 
   recentActivity: (limit = 50, taskId?: string) =>
     request(`/activity?limit=${limit}${taskId ? `&task_id=${taskId}` : ""}`),
@@ -102,6 +125,7 @@ export const api = {
   updateSchedule: (id: string, payload: { status: "ACTIVE" | "PAUSED" | "CANCELLED" }) =>
     request<ScheduledTask>(`/schedules/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   deleteSchedule: (id: string) => request<{ deleted: boolean }>(`/schedules/${id}`, { method: "DELETE" }),
+  listScheduleRuns: (id: string) => request<ScheduleRun[]>(`/schedules/${id}/runs`),
 };
 
 export interface StreamEvent {

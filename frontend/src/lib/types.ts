@@ -3,6 +3,7 @@ export type Decision = "ALLOW" | "APPROVAL_REQUIRED" | "BLOCK" | null;
 export type TransactionState =
   | "CREATED"
   | "RESEARCHING"
+  | "NEEDS_INPUT"
   | "PROPOSED"
   | "POLICY_CHECK"
   | "BLOCKED"
@@ -62,6 +63,7 @@ export interface Transaction {
   channel3_product_id: string | null;
   agent_name?: string;
   task_prompt?: string | null;
+  paypal_negative_test?: string | null;
   state: TransactionState;
   decision: Decision;
   decision_reason: string | null;
@@ -76,6 +78,8 @@ export interface Transaction {
   paypal_status: string | null;
   paypal_approve_url: string | null;
   error: string | null;
+  pending_question: string | null;
+  clarification_rounds?: number;
   created_at: string;
   updated_at: string;
   timeline?: AuditRecord[];
@@ -112,6 +116,7 @@ export interface Task {
   max_amount: number | null;
   status: string;
   error: string | null;
+  paypal_negative_test?: string | null;
   created_at: string;
   updated_at: string;
   transactions?: Transaction[];
@@ -158,4 +163,21 @@ export interface ScheduledTask {
   status: ScheduleStatus;
   created_at: string;
   updated_at: string;
+}
+
+// One real, past firing of a schedule (GET /schedules/{id}/runs) - every
+// task the scheduler ever actually spawned for it, joined with whatever
+// transaction outcome exists so far. transaction_id/transaction_state are
+// null when the pipeline hasn't created a transaction for that firing yet
+// (e.g. it is still researching), never a fabricated placeholder outcome.
+export interface ScheduleRun {
+  task_id: string;
+  fired_at: string;
+  task_status: string;
+  transaction_id: string | null;
+  transaction_state: TransactionState | null;
+  decision: Decision | null;
+  merchant: string | null;
+  amount: number | null;
+  currency: string | null;
 }

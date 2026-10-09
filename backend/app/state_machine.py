@@ -14,6 +14,7 @@ class InvalidTransition(Exception):
 STATES = {
     "CREATED",
     "RESEARCHING",
+    "NEEDS_INPUT",
     "PROPOSED",
     "POLICY_CHECK",
     "BLOCKED",
@@ -45,7 +46,14 @@ ALLOWED_EDGES: dict[str, set[str]] = {
     # It is a deliberate refusal, not a research failure, so it ends in the
     # same terminal state a deterministic policy block does rather than
     # FAILED.
-    "RESEARCHING": {"PROPOSED", "FAILED", "BLOCKED", "CANCELLED"},
+    # NEEDS_INPUT covers the agent's next message being plain conversational
+    # text (a clarifying question, or a "here's the closest match I found,
+    # want it?" check-in) instead of a tool call. Not a failure: the
+    # research loop pauses here, with its full conversation persisted, until
+    # a human replies via POST /tasks/{id}/respond, which resumes the same
+    # loop back in RESEARCHING (see orchestrator.resume_task).
+    "RESEARCHING": {"PROPOSED", "FAILED", "BLOCKED", "CANCELLED", "NEEDS_INPUT"},
+    "NEEDS_INPUT": {"RESEARCHING", "FAILED", "CANCELLED"},
     "PROPOSED": {"POLICY_CHECK", "FAILED", "CANCELLED"},
     "POLICY_CHECK": {"BLOCKED", "AWAITING_APPROVAL", "AUTHORIZED", "FAILED", "CANCELLED"},
     "AWAITING_APPROVAL": {"AUTHORIZED", "BLOCKED", "FAILED", "CANCELLED"},

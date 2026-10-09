@@ -7,11 +7,15 @@ resulting policy via the API/UI.
 from __future__ import annotations
 
 import json
+import logging
 
 from openai import AsyncOpenAI
 
 from app.agent.categories import PURCHASE_CATEGORIES
+from app.agent.llm_errors import NOT_CONFIGURED_MESSAGE, humanize_llm_error
 from app.config import get_settings
+
+logger = logging.getLogger("agentauth.policy_drafting")
 
 DRAFT_SYSTEM_PROMPT = f"""You convert a user's natural-language delegation \
 instructions into a strict JSON financial policy object for an AI purchasing \
@@ -70,7 +74,7 @@ class PolicyDraftError(Exception):
 async def draft_policy_from_text(instructions: str) -> dict:
     settings = get_settings()
     if not settings.openrouter_api_key:
-        raise PolicyDraftError("OpenRouter is not configured. Set OPENROUTER_API_KEY.")
+        raise PolicyDraftError(NOT_CONFIGURED_MESSAGE)
 
     client = AsyncOpenAI(
         base_url=settings.openrouter_base_url,
@@ -96,20 +100,34 @@ async def draft_policy_from_text(instructions: str) -> dict:
             # what this request actually produces.
             max_tokens=1024,
             response_format={"type": "json_object"},
+            # Same fix as the main research loop: some free/reasoning-capable
+            # OpenRouter models spend the whole token budget on invisible
+            # chain-of-thought by default, which can truncate this call
+            # before it ever emits the actual JSON object. This call only
+            # ever needs a small structured result, never visible reasoning.
+            extra_body={"reasoning": {"enabled": False}},
         )
     except Exception as exc:  # noqa: BLE001
-        raise PolicyDraftError(f"AI policy drafting failed: {exc}") from exc
+        logger.exception("AI policy drafting request failed")
+        raise PolicyDraftError(humanize_llm_error(exc)) from exc
 
     content = response.choices[0].message.content
     try:
         data = json.loads(content)
     except (json.JSONDecodeError, TypeError) as exc:
-        raise PolicyDraftError(f"AI returned an unparseable policy: {exc}") from exc
+        logger.exception("AI returned an unparseable policy draft: %r", content)
+        raise PolicyDraftError(
+            "The AI couldn't produce a usable policy from that description. Please try rephrasing it."
+        ) from exc
 
     required = ["max_transaction_amount", "approval_threshold", "daily_limit", "monthly_limit"]
     missing = [f for f in required if f not in data]
     if missing:
-        raise PolicyDraftError(f"AI policy draft missing required fields: {missing}")
+        logger.warning("AI policy draft missing required fields: %s", missing)
+        raise PolicyDraftError(
+            "The AI's policy draft was missing some required limits. Please try rephrasing your instructions "
+            "with clearer spending limits."
+        )
 
     data.setdefault("velocity", {"max_transactions": 5, "window_minutes": 60})
     data.setdefault("price_variance_tolerance", 0.05)

@@ -11,8 +11,9 @@ import json
 import logging
 from typing import Any, Optional
 
-from openai import APIStatusError, AsyncOpenAI
+from openai import AsyncOpenAI
 
+from app.agent.llm_errors import NOT_CONFIGURED_MESSAGE, humanize_llm_error
 from app.agent.prompts import SYSTEM_PROMPT, build_task_prompt
 from app.agent.tools import TOOL_SCHEMAS
 from app.audit.integrity import record_audit
@@ -32,32 +33,14 @@ from app.streaming.events import bus
 
 logger = logging.getLogger("agentauth.orchestrator")
 
-MAX_TOOL_ITERATIONS = 8
+MAX_TOOL_ITERATIONS = 10
 
-
-def _humanize_llm_error(exc: Exception) -> str:
-    """Turn a raw OpenRouter/OpenAI SDK exception into a short, human-readable
-    message for the UI and activity log, while the full original exception is
-    still logged server-side (and chained via `from exc`) for real debugging.
-    Never fabricates a cause. Only reformats the genuine one.
-    """
-    if isinstance(exc, APIStatusError):
-        inner = None
-        if isinstance(exc.body, dict):
-            inner = (exc.body.get("error") or {}).get("message") if isinstance(exc.body.get("error"), dict) else None
-        inner = inner or getattr(exc, "message", None) or str(exc)
-        if exc.status_code == 402:
-            return (
-                "OpenRouter rejected the request: the account doesn't have enough "
-                "credit for this model/response length. Add credits at "
-                "openrouter.ai/settings/credits or lower OPENROUTER_MODEL's cost."
-            )
-        if exc.status_code == 401:
-            return "OpenRouter rejected the API key. Check OPENROUTER_API_KEY in the backend's .env."
-        if exc.status_code == 429:
-            return "OpenRouter rate-limited this request. Try again in a moment."
-        return f"OpenRouter returned an error (HTTP {exc.status_code}): {inner}"
-    return f"AI model request failed: {type(exc).__name__}: {str(exc)[:200]}"
+# Each pause-for-clarification round gives the model a fresh MAX_TOOL_ITERATIONS
+# budget (see _run_research_loop), so this caps total human back-and-forth
+# rather than raw LLM calls: past this many questions on one task, something
+# is wrong (an ambiguous prompt, or a model stuck looping) and the task
+# should fail with a clear message instead of asking forever.
+MAX_CLARIFICATION_ROUNDS = 5
 
 
 class AgentError(Exception):
@@ -71,6 +54,15 @@ class OutOfScopeError(Exception):
     refusing to act outside its delegated role, not a failure of the research
     pipeline, and it is reported to the user as a distinct, clean outcome
     rather than a generic error."""
+
+
+class NeedsInputError(Exception):
+    """Raised when the agent's next turn is plain conversational text (a
+    clarifying question, or a check-in about a near-match it found) rather
+    than a tool call. Deliberately not an AgentError: this is the agent
+    correctly pausing to ask the human something, not the research pipeline
+    failing. The task lands in NEEDS_INPUT, with its full conversation
+    persisted, until the human replies via POST /tasks/{id}/respond."""
 
 
 class AgentRetiredError(Exception):
@@ -128,7 +120,7 @@ def _ensure_agent_active(agent_id: str) -> None:
 def _openrouter_client() -> AsyncOpenAI:
     settings = get_settings()
     if not settings.openrouter_api_key:
-        raise AgentError("OpenRouter is not configured. Set OPENROUTER_API_KEY.")
+        raise AgentError(NOT_CONFIGURED_MESSAGE)
     return AsyncOpenAI(
         base_url=settings.openrouter_base_url,
         api_key=settings.openrouter_api_key,
@@ -159,8 +151,57 @@ async def run_task(task_id: str) -> None:
     models.update_task_status(task_id, "RESEARCHING")
     _set_tx_state(tx_id, "CREATED", "RESEARCHING")
 
+    messages: list[dict] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": build_task_prompt(agent["purpose"], agent["directive"], task["prompt"])},
+    ]
+    await _continue_research(agent, task, tx_id, messages)
+
+
+async def resume_task(task_id: str, reply: str) -> None:
+    """Resume a task that is sitting in NEEDS_INPUT because the agent's last
+    turn was a clarifying question (or a check-in like "I found X instead,
+    want it?") rather than a tool call. Appends the human's reply to the
+    exact conversation that was paused and re-enters the same research loop,
+    so the model picks up with full context rather than starting over."""
+    task = models.get_task(task_id)
+    if not task:
+        return
+    agent = models.get_agent(task["agent_id"])
+    tx = models.get_transaction_for_task(task_id)
+    if not tx or tx["state"] != "NEEDS_INPUT":
+        raise AgentError("This task is not currently waiting for a reply.")
+
+    tx_id = tx["id"]
+    messages: list[dict] = json.loads(tx["conversation_state"] or "[]")
+    messages.append({"role": "user", "content": reply})
+
+    _set_tx_state(tx_id, "NEEDS_INPUT", "RESEARCHING",
+                   pending_question=None, conversation_state=None)
+    models.update_task_status(task_id, "RESEARCHING")
+    await emit("USER_REPLIED", reply, task_id=task_id, agent_id=agent["id"],
+                transaction_id=tx_id, payload={"message": reply})
+
+    await _continue_research(agent, task, tx_id, messages)
+
+
+async def _continue_research(agent: dict, task: dict, tx_id: str, messages: list[dict]) -> None:
+    """Shared tail end of run_task/resume_task: run the research loop from
+    wherever `messages` leaves off, then (if it actually produced a
+    proposal rather than pausing/declining/failing) carry it through policy
+    evaluation and execution. Split out so both a brand-new task and one
+    resuming after a human reply land in identical downstream handling."""
+    task_id = task["id"]
+    policy_row = models.get_active_policy(agent["id"])
+    if not policy_row:
+        await _fail(tx_id, task_id, agent["id"], "No active policy configured for this agent.")
+        return
+
     try:
-        proposal = await _run_research_loop(agent, task, tx_id)
+        proposal = await _run_research_loop(agent, task, tx_id, messages)
+    except NeedsInputError as exc:
+        await _ask_clarifying_question(tx_id, task_id, agent["id"], str(exc), messages)
+        return
     except OutOfScopeError as exc:
         await _decline_out_of_scope(tx_id, task_id, agent["id"], str(exc))
         return
@@ -172,13 +213,34 @@ async def run_task(task_id: str) -> None:
         return
     except Exception as exc:  # noqa: BLE001
         logger.exception("Unexpected error in agent research loop")
-        await _fail(tx_id, task_id, agent["id"], f"Agent execution failed: {type(exc).__name__}: {str(exc)[:200]}")
+        await _fail(
+            tx_id, task_id, agent["id"],
+            "Something unexpected went wrong while this agent was working on the task. "
+            "Please try again, and contact your administrator if it keeps happening.",
+        )
         return
 
     try:
         amount_usd = await _normalize_to_usd(proposal["amount"], proposal["currency"])
     except ExchangeRateError as exc:
         await _fail(tx_id, task_id, agent["id"], str(exc))
+        return
+
+    # Deterministic backstop, independent of the tool-call validation in
+    # _run_research_loop above: no proposal with a non-positive amount may
+    # ever reach the policy engine or PayPal, no matter how it got here. A
+    # $0.00 (or negative) "price" trivially clears every budget check, so
+    # without this it would sail through ALLOW and only fail once PayPal
+    # itself rejects a zero-amount order - after the task already looked
+    # proposed and approved to the user, with a confusing PayPal error as
+    # the only explanation.
+    if not (amount_usd > 0):
+        await _fail(
+            tx_id, task_id, agent["id"],
+            f"The agent proposed {proposal['merchant']} at "
+            f"{proposal['amount']} {proposal['currency']}, which is not a real, positive "
+            "price. No order was sent to PayPal.",
+        )
         return
 
     models.update_transaction(
@@ -241,21 +303,105 @@ async def run_task(task_id: str) -> None:
     await execute_payment(tx_id)
 
 
-async def _run_research_loop(agent: dict, task: dict, tx_id: str) -> dict:
+_LEAKED_REASONING_MARKERS = (
+    "let me think", "let me re-read", "let me reconsider", "wait,", "wait -",
+    "actually,", "actually wait", "hmm,", "so i need to", "i think i should",
+    "looking more carefully", "let me check", "let me review",
+)
+
+
+def _looks_like_leaked_reasoning(text: str) -> bool:
+    """Cheap heuristic for 'this is scratch-work, not a message to a human':
+    long (a real clarifying question is a sentence or two), multi-paragraph,
+    or full of first-person deliberation markers. False positives just cost
+    one extra LLM call; false negatives leave the original text untouched,
+    so this only needs to be good enough to catch the common, blatant case
+    seen from less disciplined models."""
+    if len(text) > 350:
+        return True
+    if text.count("\n\n") >= 2:
+        return True
+    lowered = text.lower()
+    return sum(marker in lowered for marker in _LEAKED_REASONING_MARKERS) >= 2
+
+
+async def _sanitize_human_message(client: AsyncOpenAI, settings, raw: str) -> str:
+    """If `raw` looks like leaked chain-of-thought rather than an actual
+    message meant for a human, ask the model to distill it into the single
+    clean question/explanation it should have sent. Best-effort: any failure
+    (or a result that doesn't look like an improvement) just falls back to
+    the original text rather than blocking the task on a cleanup step."""
+    if not _looks_like_leaked_reasoning(raw):
+        return raw
+    try:
+        response = await client.chat.completions.create(
+            model=settings.openrouter_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "The text below is an AI assistant's internal reasoning, "
+                        "accidentally about to be shown to a human instead of a "
+                        "clean message. Rewrite it as ONE short, friendly message "
+                        "(1-3 sentences) containing only what the human actually "
+                        "needs: the final question being asked, or a brief plain "
+                        "summary of what was found and why input is needed. Drop "
+                        "all step-by-step deliberation, option-weighing, and "
+                        "meta-commentary. Reply with ONLY the rewritten message, "
+                        "nothing else."
+                    ),
+                },
+                {"role": "user", "content": raw},
+            ],
+            temperature=0.1,
+            max_tokens=200,
+            extra_body={"reasoning": {"enabled": False}},
+        )
+        cleaned = (response.choices[0].message.content or "").strip()
+        # Sanity check: a real cleanup should be short. If the model
+        # couldn't follow even this instruction, better to show the human
+        # the original raw text than a second layer of garbage.
+        if cleaned and len(cleaned) < len(raw):
+            return cleaned
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to sanitize a leaked-reasoning message; using raw text", exc_info=True)
+    return raw
+
+
+async def _run_research_loop(agent: dict, task: dict, tx_id: str, messages: list[dict]) -> dict:
+    """Runs up to MAX_TOOL_ITERATIONS more turns of the tool-calling loop,
+    mutating `messages` in place as it goes. `messages` may already contain
+    prior turns from an earlier call that paused on NeedsInputError and was
+    since resumed with a human reply appended - this function has no memory
+    of its own, all continuity lives in the caller-owned message list."""
     client = _openrouter_client()
     settings = get_settings()
-    messages: list[dict] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": build_task_prompt(agent["purpose"], agent["directive"], task["prompt"])},
-    ]
 
-    for _ in range(MAX_TOOL_ITERATIONS):
+    for step in range(MAX_TOOL_ITERATIONS):
         # Cheap, cooperative check before every round-trip to the model: if
         # the agent has been retired or deleted since this loop started,
         # stop now instead of burning another LLM call researching (or
         # worse, going on to propose/spend) for an agent that no longer
         # exists or was told to stop.
         _ensure_agent_active(agent["id"])
+
+        # Weaker/less decisive models can burn the whole research budget
+        # re-searching instead of ever concluding. With 2 calls left, inject
+        # an explicit countdown so the model wraps up on its own terms
+        # (propose with what it already has, or ask ONE clean final
+        # question) instead of silently running out of road.
+        remaining = MAX_TOOL_ITERATIONS - step
+        if remaining <= 2:
+            messages.append({
+                "role": "system",
+                "content": (
+                    f"You have {remaining} tool call(s) left before this task is "
+                    "marked failed with no result. Stop researching now: call "
+                    "create_purchase_proposal with the best real option you already "
+                    "found, or, only if genuinely blocked, reply in plain text with "
+                    "ONE short final question for the human and nothing else."
+                ),
+            })
         try:
             response = await client.chat.completions.create(
                 model=settings.openrouter_model,
@@ -264,20 +410,46 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str) -> dict:
                 tool_choice="auto",
                 temperature=0.2,
                 max_tokens=1024,
+                # Several free OpenRouter models are "reasoning" models that
+                # by default spend most/all of max_tokens on an internal
+                # chain-of-thought (returned separately as `reasoning`, but
+                # some providers also bleed it into `content` when the
+                # response gets cut off mid-thought). This agent has no use
+                # for visible reasoning, only a final tool call or a short
+                # clean message, so turn it off everywhere; models that don't
+                # support the parameter simply ignore it.
+                extra_body={"reasoning": {"enabled": False}},
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("OpenRouter chat.completions.create failed")
-            raise AgentError(_humanize_llm_error(exc)) from exc
+            raise AgentError(humanize_llm_error(exc)) from exc
 
         choice = response.choices[0]
         msg = choice.message
         messages.append(msg.model_dump(exclude_none=True))
 
         if not msg.tool_calls:
-            raise AgentError(
-                "Agent did not produce a purchase proposal. Last message: "
-                + (msg.content or "(empty)")
-            )
+            content = (msg.content or "").strip()
+            if not content:
+                raise AgentError("Agent did not produce a purchase proposal, and left no message explaining why.")
+            # The model chose to talk instead of calling a tool: a
+            # clarifying question, a "closest match I found, want it?"
+            # check-in, anything conversational. That is not a research
+            # failure, so unlike every other dead end in this loop it does
+            # NOT raise AgentError. Instead the caller pauses the task in
+            # NEEDS_INPUT with this exact conversation preserved, so a human
+            # can answer it and the loop can pick back up with full context.
+            #
+            # Less disciplined models sometimes ignore the system prompt's
+            # instruction to keep this text human-facing only, and dump
+            # their raw step-by-step reasoning here instead of a clean
+            # question. That reasoning would otherwise land verbatim on a
+            # human's screen, so detect anything that looks like leaked
+            # scratch-work and pay for one extra, cheap call to distill it
+            # into the single clean message it should have been. Short,
+            # well-behaved replies (the common case) skip this entirely.
+            content = await _sanitize_human_message(client, settings, content)
+            raise NeedsInputError(content)
 
         for call in msg.tool_calls:
             name = call.function.name
@@ -290,21 +462,24 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str) -> dict:
                 query = args.get("query", "")
                 max_price = args.get("max_price")
                 await emit("CHANNEL3_SEARCH_STARTED",
-                            f"Channel3: searching real-time product catalog for \"{query}\"...",
+                            f"Searching the product catalog for \"{query}\"...",
                             task_id=task["id"], agent_id=agent["id"], transaction_id=tx_id,
                             payload={"query": query, "max_price": max_price})
                 try:
                     products = await search_products(query, max_price=max_price)
                 except Channel3Error as exc:
-                    await emit("CHANNEL3_SEARCH_FAILED", str(exc), task_id=task["id"], agent_id=agent["id"],
+                    logger.warning("Channel3 product search failed: %s", exc)
+                    await emit("CHANNEL3_SEARCH_FAILED",
+                                "Product catalog search failed; falling back to web search.",
+                                task_id=task["id"], agent_id=agent["id"],
                                 transaction_id=tx_id, payload={"query": query, "error": str(exc)})
                     messages.append({
                         "role": "tool", "tool_call_id": call.id,
-                        "content": json.dumps({"error": str(exc)}),
+                        "content": json.dumps({"error": "Product catalog search unavailable; use search_web instead."}),
                     })
                     continue
                 await emit("CHANNEL3_SEARCH_COMPLETED",
-                            f"Channel3 found {len(products)} real product candidate(s).",
+                            f"Found {len(products)} real product candidate(s).",
                             task_id=task["id"], agent_id=agent["id"], transaction_id=tx_id,
                             payload={"query": query, "result_count": len(products), "products": products[:8]})
                 messages.append({
@@ -376,7 +551,42 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str) -> dict:
                         "content": json.dumps({"error": f"Missing fields: {missing}"}),
                     })
                     continue
+                # `0 in (None, "")` is False, so a bogus/unfound $0.00 "price"
+                # (or a negative one) sailed straight past the missing-field
+                # check above, through policy evaluation (trivially within
+                # any budget), and all the way to PayPal, which correctly
+                # rejects a zero-amount order - but only after the task has
+                # already looked ALLOWED and "proposed" to the user. Catch it
+                # here instead: bounce it back to the agent as a tool error so
+                # it re-researches a real price or (since it cannot invent
+                # one) asks the user via a plain-text message, exactly like
+                # any other genuine research dead end.
+                try:
+                    amount_value = float(args["amount"])
+                except (TypeError, ValueError):
+                    messages.append({
+                        "role": "tool", "tool_call_id": call.id,
+                        "content": json.dumps({"error": "amount must be a real number."}),
+                    })
+                    continue
+                if not (amount_value > 0):
+                    messages.append({
+                        "role": "tool", "tool_call_id": call.id,
+                        "content": json.dumps({
+                            "error": (
+                                f"amount must be a real, positive price you actually found "
+                                f"on the page (got {amount_value}). $0.00 is never a valid "
+                                "price for a real purchase. If you could not find a real "
+                                "price for this option, research a different candidate, or "
+                                "if nothing has a findable price, say so in plain text and "
+                                "ask the user how to proceed instead of proposing this."
+                            )
+                        }),
+                    })
+                    continue
+                args["amount"] = amount_value
                 return args
+
 
             elif name == "decline_out_of_scope_task":
                 reason = (args.get("reason") or "").strip() or (
@@ -430,6 +640,35 @@ async def _fail(tx_id: str, task_id: str, agent_id: str, message: str) -> None:
     models.update_task_status(task_id, "FAILED", message)
     await emit("TRANSACTION_FAILED", message, task_id=task_id, agent_id=agent_id, transaction_id=tx_id,
                 payload={"error": message})
+
+
+async def _ask_clarifying_question(tx_id: str, task_id: str, agent_id: str, question: str,
+                                     messages: list[dict]) -> None:
+    """The agent's next turn was conversational rather than a tool call (see
+    NeedsInputError). Pauses the task in NEEDS_INPUT with the exact
+    conversation preserved so a human can answer via POST
+    /tasks/{id}/respond and the loop resumes with full context - unless this
+    task has already asked MAX_CLARIFICATION_ROUNDS questions, in which case
+    it fails outright rather than asking forever."""
+    tx = models.get_transaction(tx_id)
+    rounds = (tx.get("clarification_rounds") or 0) + 1
+    if rounds > MAX_CLARIFICATION_ROUNDS:
+        await _fail(
+            tx_id, task_id, agent_id,
+            f"The agent asked {rounds} follow-up questions without reaching a decision. "
+            f"Last question: {question}",
+        )
+        return
+
+    _set_tx_state(
+        tx_id, "RESEARCHING", "NEEDS_INPUT",
+        pending_question=question,
+        conversation_state=json.dumps(messages),
+        clarification_rounds=rounds,
+    )
+    models.update_task_status(task_id, "NEEDS_INPUT")
+    await emit("AGENT_ASKED_QUESTION", question, task_id=task_id, agent_id=agent_id,
+                transaction_id=tx_id, payload={"question": question, "round": rounds})
 
 
 async def _decline_out_of_scope(tx_id: str, task_id: str, agent_id: str, reason: str) -> None:
@@ -639,8 +878,17 @@ async def _finalize_payment(tx_id: str, order: dict) -> None:
     over_authority = authorized_amount > (tx["authorized_amount"] or policy.max_transaction_amount) + 1e-9
 
     if variance["within_tolerance"] and not over_authority:
+        # Opt-in sandbox QA hook (see app/paypal/orders.py / docs/NEGATIVE_TESTING.md):
+        # null on every normal task, so this is a no-op and captures for real,
+        # exactly as before. Only set when a task was deliberately created to
+        # demonstrate PayPal itself declining this one capture, via PayPal's
+        # own documented negative-testing mechanism.
+        task = models.get_task(task_id)
+        negative_test = task.get("paypal_negative_test") if task else None
         try:
-            capture = await paypal_orders.capture_authorization(order["authorization_id"])
+            capture = await paypal_orders.capture_authorization(
+                order["authorization_id"], mock_response=negative_test
+            )
         except PayPalError as exc:
             await _fail(tx_id, task_id, agent_id, f"PayPal capture failed: {exc}")
             return

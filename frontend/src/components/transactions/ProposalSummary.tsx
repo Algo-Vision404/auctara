@@ -14,7 +14,7 @@ export function ProposalSummary({ tx }: { tx: Transaction }) {
         </p>
         {tx.channel3_product_id && (
           <span className="flex items-center gap-1.5 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-text-secondary)]">
-            <PackageSearch size={12} /> Sourced via Channel3
+            <PackageSearch size={12} /> Verified live listing
           </span>
         )}
       </div>

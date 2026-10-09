@@ -35,6 +35,7 @@ export const decisionColor: Record<string, string> = {
 export const stateColor: Record<string, string> = {
   CREATED: "muted",
   RESEARCHING: "info",
+  NEEDS_INPUT: "warning",
   PROPOSED: "info",
   POLICY_CHECK: "info",
   BLOCKED: "danger",
@@ -45,4 +46,5 @@ export const stateColor: Record<string, string> = {
   VOIDED: "danger",
   COMPLETED: "success",
   FAILED: "danger",
+  CANCELLED: "muted",
 };

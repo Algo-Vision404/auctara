@@ -52,4 +52,5 @@ async def fetch_page(url: str) -> str:
     except FetchError:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise FetchError(f"Failed to fetch page: {exc}") from exc
+        logger.warning("Failed to fetch page %r: %s", url, exc)
+        raise FetchError("Could not read that page right now.") from exc

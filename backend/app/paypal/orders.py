@@ -23,6 +23,7 @@ shopper to PayPal Sandbox to approve the order like a normal checkout.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Optional
 
@@ -43,6 +44,17 @@ from app.paypal.client import (
 )
 
 RETURN_REPRESENTATION = "return=representation"
+
+# PayPal's own documented, officially-supported sandbox negative-testing
+# codes for the "Capture payment for order" family of endpoints (see
+# docs/NEGATIVE_TESTING.md). Kept as an explicit allow-list, rather than
+# accepting any caller-supplied string, so this opt-in QA hook can only ever
+# request a real scenario PayPal itself documents - never an arbitrary value.
+NEGATIVE_TEST_CODES = {
+    "INSTRUMENT_DECLINED": "Card declined at capture (buyer's payment instrument is rejected)",
+    "TRANSACTION_REFUSED": "Transaction refused by PayPal's payment engine",
+    "INTERNAL_SERVER_ERROR": "PayPal service error (HTTP 500) during capture",
+}
 
 
 def _card_payment_source() -> Optional[PaymentSource]:
@@ -123,13 +135,26 @@ async def authorize_order(order_id: str) -> dict:
     return _summarize_order(to_wire_dict(result.body))
 
 
-async def capture_authorization(authorization_id: str) -> dict:
+async def capture_authorization(authorization_id: str, mock_response: str | None = None) -> dict:
+    """`mock_response`, when set, is one of PayPal's own documented sandbox
+    negative-testing codes for this endpoint (e.g. "INSTRUMENT_DECLINED",
+    "TRANSACTION_REFUSED", "INTERNAL_SERVER_ERROR" - see
+    https://developer.paypal.com/tools/sandbox/negative-testing/request-headers/
+    and docs/NEGATIVE_TESTING.md). It makes PayPal's own real sandbox API
+    genuinely return that real, documented error for this one call, via the
+    PayPal-Mock-Response header the SDK exposes as `paypal_mock_response` -
+    this is PayPal's own supported QA mechanism, not anything fabricated by
+    this codebase. None (the default, used by every normal transaction)
+    requests nothing special and captures for real, exactly as before."""
     client = get_paypal_client()
+    options = {
+        "authorization_id": authorization_id,
+        "prefer": RETURN_REPRESENTATION,
+    }
+    if mock_response:
+        options["paypal_mock_response"] = json.dumps({"mock_application_codes": mock_response})
     try:
-        result = client.payments.capture_authorized_payment({
-            "authorization_id": authorization_id,
-            "prefer": RETURN_REPRESENTATION,
-        })
+        result = client.payments.capture_authorized_payment(options)
     except PAYPAL_SDK_EXCEPTIONS as exc:
         raise translate_sdk_error(exc, "PayPal capture failed") from exc
 

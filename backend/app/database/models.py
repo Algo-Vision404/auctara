@@ -110,13 +110,14 @@ def get_active_policy(agent_id: str) -> Optional[dict]:
 
 # ------------------------------------------------------------------ tasks --
 def create_task(agent_id: str, prompt: str, max_amount: float | None,
-                 frontend_origin: str | None = None, scheduled_task_id: str | None = None) -> dict:
+                 frontend_origin: str | None = None, scheduled_task_id: str | None = None,
+                 paypal_negative_test: str | None = None) -> dict:
     conn = get_connection()
     task_id = new_id("task")
     conn.execute(
-        "INSERT INTO tasks (id, agent_id, prompt, max_amount, status, frontend_origin, scheduled_task_id) "
-        "VALUES (?,?,?,?, 'CREATED', ?, ?)",
-        (task_id, agent_id, prompt, max_amount, frontend_origin, scheduled_task_id),
+        "INSERT INTO tasks (id, agent_id, prompt, max_amount, status, frontend_origin, scheduled_task_id, "
+        "paypal_negative_test) VALUES (?,?,?,?, 'CREATED', ?, ?, ?)",
+        (task_id, agent_id, prompt, max_amount, frontend_origin, scheduled_task_id, paypal_negative_test),
     )
     return get_task(task_id)
 
@@ -158,7 +159,7 @@ def create_transaction(task_id: str, agent_id: str) -> dict:
 def get_transaction(tx_id: str) -> Optional[dict]:
     conn = get_connection()
     row = conn.execute(
-        "SELECT t.*, a.name AS agent_name, k.prompt AS task_prompt "
+        "SELECT t.*, a.name AS agent_name, k.prompt AS task_prompt, k.paypal_negative_test AS paypal_negative_test "
         "FROM transactions t "
         "JOIN agents a ON a.id = t.agent_id "
         "LEFT JOIN tasks k ON k.id = t.task_id "
@@ -168,10 +169,27 @@ def get_transaction(tx_id: str) -> Optional[dict]:
     return row_to_dict(row)
 
 
+def get_transaction_for_task(task_id: str) -> Optional[dict]:
+    """The one transaction a task owns. run_task creates exactly one
+    transaction per task up front and every later step (including pausing
+    for clarification and resuming) keeps reusing that same row, so "most
+    recent for this task_id" is always the right (and only) one."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT t.*, a.name AS agent_name, k.prompt AS task_prompt, k.paypal_negative_test AS paypal_negative_test "
+        "FROM transactions t "
+        "JOIN agents a ON a.id = t.agent_id "
+        "LEFT JOIN tasks k ON k.id = t.task_id "
+        "WHERE t.task_id=? ORDER BY t.created_at DESC LIMIT 1",
+        (task_id,),
+    ).fetchone()
+    return row_to_dict(row)
+
+
 def list_transactions(agent_id: str | None = None) -> list[dict]:
     conn = get_connection()
     base = (
-        "SELECT t.*, a.name AS agent_name, k.prompt AS task_prompt "
+        "SELECT t.*, a.name AS agent_name, k.prompt AS task_prompt, k.paypal_negative_test AS paypal_negative_test "
         "FROM transactions t "
         "JOIN agents a ON a.id = t.agent_id "
         "LEFT JOIN tasks k ON k.id = t.task_id"
@@ -359,6 +377,36 @@ def update_scheduled_task(sched_id: str, **fields: Any) -> dict:
 def delete_scheduled_task(sched_id: str) -> None:
     conn = get_connection()
     conn.execute("DELETE FROM scheduled_tasks WHERE id=?", (sched_id,))
+
+
+def list_runs_for_schedule(sched_id: str) -> list[dict]:
+    """Every real task this schedule has ever actually fired (scheduler.py
+    stamps `scheduled_task_id` on each one it spawns), joined with that
+    task's transaction outcome where one exists yet. This is what lets the
+    Bryntum timeline plot a schedule's genuine execution history - real
+    past firings with their real outcomes - rather than only ever showing a
+    single synthetic recurring-rule pattern with no record of what actually
+    happened each time it fired.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT
+               k.id AS task_id,
+               k.created_at AS fired_at,
+               k.status AS task_status,
+               t.id AS transaction_id,
+               t.state AS transaction_state,
+               t.decision AS decision,
+               t.merchant AS merchant,
+               t.amount AS amount,
+               t.currency AS currency
+           FROM tasks k
+           LEFT JOIN transactions t ON t.task_id = k.id
+           WHERE k.scheduled_task_id = ?
+           ORDER BY k.created_at ASC""",
+        (sched_id,),
+    ).fetchall()
+    return [row_to_dict(r) for r in rows]
 
 
 def compute_next_run(current_next_run_iso: str, recurrence: str) -> Optional[str]:

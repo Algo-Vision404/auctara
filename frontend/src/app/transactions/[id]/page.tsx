@@ -5,8 +5,11 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { TopBar } from "@/components/nav/TopBar";
 import { Badge, stateTone } from "@/components/ui/Badge";
 import { ApprovalCard } from "@/components/transactions/ApprovalCard";
+import { NeedsInputCard } from "@/components/transactions/NeedsInputCard";
 import { BlockedCard } from "@/components/transactions/BlockedCard";
+import { VoidedCard } from "@/components/transactions/VoidedCard";
 import { ProposalSummary } from "@/components/transactions/ProposalSummary";
+import { Channel3Candidates } from "@/components/transactions/Channel3Candidates";
 import { DecisionTimeline } from "@/components/transactions/DecisionTimeline";
 import { Terminal } from "@/components/terminal/Terminal";
 import { Button } from "@/components/ui/Button";
@@ -14,7 +17,7 @@ import { api, ApiError } from "@/lib/api";
 import { Transaction, Agent } from "@/lib/types";
 import { money, titleCase, fullDateTime } from "@/lib/format";
 import { buildTimelineStages } from "@/lib/timelineStages";
-import { Loader2, ArrowRight, TriangleAlert, CircleCheck, XCircle } from "lucide-react";
+import { Loader2, ArrowRight, TriangleAlert, CircleCheck, XCircle, FlaskConical } from "lucide-react";
 
 const TERMINAL_STATES = new Set(["COMPLETED", "BLOCKED", "VOIDED", "FAILED", "CANCELLED"]);
 
@@ -91,11 +94,16 @@ export default function TransactionDetailPage() {
     await api.rejectTransaction(id);
     load();
   }
+  async function handleReply(message: string) {
+    if (!tx?.task_id) return;
+    await api.respondToTask(tx.task_id, message);
+    load();
+  }
 
   if (error && !tx) {
     return (
       <div className="flex flex-1 flex-col">
-        <TopBar title="Transaction" />
+        <TopBar title="Transaction" backHref="/activity" backLabel="Back to activity" />
         <main className="px-5 py-6 md:px-8">
           <div className="card-surface border-l-4 border-l-[var(--color-danger)] p-4 text-sm text-[var(--color-danger)]">
             {error}
@@ -108,7 +116,7 @@ export default function TransactionDetailPage() {
   if (!tx) {
     return (
       <div className="flex flex-1 flex-col">
-        <TopBar title="Transaction" />
+        <TopBar title="Transaction" backHref="/activity" backLabel="Back to activity" />
         <main className="flex flex-1 items-center justify-center">
           <Loader2 className="animate-spin text-[var(--color-text-muted)]" />
         </main>
@@ -121,7 +129,12 @@ export default function TransactionDetailPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <TopBar title={`Transaction ${id.replace("tx_", "#").toUpperCase()}`} subtitle={fullDateTime(tx.created_at)} />
+      <TopBar
+        title={`Transaction ${id.replace("tx_", "#").toUpperCase()}`}
+        subtitle={fullDateTime(tx.created_at)}
+        backHref={tx.agent_id ? `/agents/${tx.agent_id}` : "/activity"}
+        backLabel="Back to agent"
+      />
       <main className="mx-auto w-full max-w-5xl flex-1 space-y-6 px-5 py-6 md:px-8">
         {error && (
           <div className="card-surface border-l-4 border-l-[var(--color-warning)] p-4 text-sm text-[var(--color-warning)]">
@@ -131,12 +144,25 @@ export default function TransactionDetailPage() {
         <div className="flex flex-wrap items-center gap-3">
           <Badge tone={stateTone(tx.state)}>{titleCase(tx.state)}</Badge>
           {tx.decision && <Badge tone="accent">{titleCase(tx.decision)}</Badge>}
-          {!TERMINAL_STATES.has(tx.state) && tx.state !== "AWAITING_APPROVAL" && (
+          {!TERMINAL_STATES.has(tx.state) && tx.state !== "AWAITING_APPROVAL" && tx.state !== "NEEDS_INPUT" && (
             <span className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
               <Loader2 size={12} className="animate-spin" /> live
             </span>
           )}
         </div>
+
+        {tx.paypal_negative_test && (
+          <div className="card-surface flex items-start gap-3 border-l-4 border-l-[var(--color-warning)] p-4">
+            <FlaskConical size={18} className="mt-0.5 shrink-0 text-[var(--color-warning)]" />
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              <span className="font-semibold text-[var(--color-text)]">Sandbox QA active:</span> this task
+              requested PayPal&apos;s own official negative-testing header (
+              <code className="font-mono-ui text-xs">{tx.paypal_negative_test}</code>) for its capture
+              step. Any decline or failure below is a real response from PayPal&apos;s own sandbox, not a
+              bug or fabricated data &mdash; it exists to prove this exact failure path works.
+            </p>
+          </div>
+        )}
 
         {confirmingPaypal && (
           <div className="card-elevated flex items-center gap-3 border-l-4 border-l-[var(--color-accent)] p-6">
@@ -154,6 +180,8 @@ export default function TransactionDetailPage() {
         {tx.state === "AWAITING_APPROVAL" && (
           <ApprovalCard tx={tx} agent={agent} policyEvaluation={policyEval} onApprove={handleApprove} onReject={handleReject} />
         )}
+
+        {tx.state === "NEEDS_INPUT" && <NeedsInputCard tx={tx} onReply={handleReply} />}
 
         {tx.state === "BLOCKED" && <BlockedCard tx={tx} agent={agent} />}
 
@@ -179,17 +207,7 @@ export default function TransactionDetailPage() {
           </div>
         )}
 
-        {tx.state === "VOIDED" && (
-          <div className="card-elevated space-y-2 border-l-4 border-l-[var(--color-danger)] p-6">
-            <p className="flex items-center gap-2 text-sm font-semibold text-[var(--color-danger)]">
-              <TriangleAlert size={16} /> Payment Voided
-            </p>
-            <p className="text-sm text-[var(--color-text-secondary)]">{tx.decision_reason}</p>
-            <p className="text-xs text-[var(--color-text-muted)]">
-              Expected {money(tx.expected_amount)} · PayPal confirmed {money(tx.actual_amount)}
-            </p>
-          </div>
-        )}
+        {tx.state === "VOIDED" && <VoidedCard tx={tx} agent={agent} />}
 
         {tx.state === "COMPLETED" && (
           <div className="card-elevated flex flex-col items-center gap-4 border-t-4 border-t-[var(--color-success)] px-6 py-10 text-center">
@@ -234,6 +252,8 @@ export default function TransactionDetailPage() {
             </a>
           </div>
         )}
+
+        <Channel3Candidates tx={tx} />
 
         <ProposalSummary tx={tx} />
 

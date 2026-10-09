@@ -64,6 +64,9 @@ CREATE TABLE IF NOT EXISTS transactions (
     paypal_status TEXT,
     paypal_approve_url TEXT,
     error TEXT,
+    pending_question TEXT,
+    conversation_state TEXT,
+    clarification_rounds INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
@@ -134,6 +137,15 @@ def run_migrations() -> None:
     _ensure_column(conn, "transactions", "retailer", "TEXT")
     _ensure_column(conn, "transactions", "channel3_product_id", "TEXT")
     _ensure_column(conn, "tasks", "scheduled_task_id", "TEXT")
+    _ensure_column(conn, "transactions", "pending_question", "TEXT")
+    _ensure_column(conn, "transactions", "conversation_state", "TEXT")
+    _ensure_column(conn, "transactions", "clarification_rounds", "INTEGER NOT NULL DEFAULT 0")
+    # Opt-in sandbox QA hook: when set, the one capture call for this task's
+    # transaction is made with PayPal's own official negative-testing header
+    # (see app/paypal/orders.py / docs/NEGATIVE_TESTING.md) instead of a real
+    # capture attempt, so a real decline from PayPal's sandbox can be shown
+    # on demand. Null for every normal task, which behaves exactly as before.
+    _ensure_column(conn, "tasks", "paypal_negative_test", "TEXT")
 
 
 def _ensure_column(conn, table: str, column: str, coltype: str) -> None:

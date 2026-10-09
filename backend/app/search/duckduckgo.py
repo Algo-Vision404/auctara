@@ -110,4 +110,8 @@ async def search_web(query: str, max_results: int = 8) -> list[dict]:
     except Exception as exc:  # noqa: BLE001
         errors.append(f"bing: {exc}")
 
-    raise SearchError(f"Web search failed: {'; '.join(errors)}")
+    logger.warning("All web search providers failed for query %r: %s", query, "; ".join(errors))
+    raise SearchError(
+        "Web search is temporarily unavailable; the search providers this agent "
+        "relies on did not return results. Please try again shortly."
+    )

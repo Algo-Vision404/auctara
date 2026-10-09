@@ -23,6 +23,7 @@ PayPal's real response or raises PayPalError with the real detail attached.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 import requests
@@ -35,6 +36,8 @@ from paypalserversdk.http.auth.o_auth_2 import ClientCredentialsAuthCredentials
 from paypalserversdk.paypal_serversdk_client import PaypalServersdkClient
 
 from app.config import get_settings
+
+logger = logging.getLogger("agentauth.paypal")
 
 # Every exception type a call through the SDK can raise that represents a
 # real interaction with (or failure to reach) PayPal. See the SDK's own
@@ -70,10 +73,22 @@ def translate_sdk_error(exc: Exception, context: str) -> PayPalError:
             detail=detail,
         )
     if isinstance(exc, AuthValidationException):
-        return PayPalError(f"{context}: PayPal rejected the configured credentials ({exc}).")
+        # Unlike ApiException above, this comes from the SDK's own auth
+        # layer before a request is even sent, so str(exc) is internal SDK
+        # wording (e.g. mentions its own auth-handler/token class names),
+        # not anything PayPal itself returned. Log the real detail, keep it
+        # out of the user-facing message.
+        logger.warning("%s: PayPal credentials rejected by SDK auth layer: %s", context, exc)
+        return PayPalError(f"{context}: PayPal rejected the configured credentials.")
     if isinstance(exc, requests.exceptions.RequestException):
-        return PayPalError(f"{context}: could not reach PayPal ({exc}).")
-    return PayPalError(f"{context}: {exc}")
+        # A transport-level failure (DNS, timeout, connection refused, TLS)
+        # never reached PayPal at all, so str(exc) is raw requests/urllib3
+        # internals (connection pool reprs, object addresses, errno codes)
+        # - not PayPal error detail. Same treatment as above.
+        logger.warning("%s: could not reach PayPal: %s", context, exc)
+        return PayPalError(f"{context}: could not reach PayPal right now.")
+    logger.warning("%s: unexpected error from PayPal SDK call: %r", context, exc)
+    return PayPalError(f"{context}: an unexpected error occurred.")
 
 
 def _error_details_to_list(details: Any) -> Optional[list]:

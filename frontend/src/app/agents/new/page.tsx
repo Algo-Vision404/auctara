@@ -77,7 +77,7 @@ export default function NewAgentPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <TopBar title="Create an Agent" subtitle="Natural language → explicit financial authority." />
+      <TopBar title="Create an Agent" subtitle="Natural language → explicit financial authority." backHref="/agents" />
       <main className="mx-auto w-full max-w-3xl flex-1 space-y-6 px-5 py-6 md:px-8">
         <div className="card-surface space-y-4 p-6">
           <label className="text-sm font-semibold">Describe what this agent should do</label>

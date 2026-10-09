@@ -2,11 +2,14 @@
 beyond a short TTL, and failures are surfaced rather than papered over."""
 from __future__ import annotations
 
+import logging
 import time
 
 import httpx
 
 from app.config import get_settings
+
+logger = logging.getLogger("agentauth.exchange")
 
 
 class ExchangeRateError(Exception):
@@ -29,10 +32,16 @@ async def get_rates() -> dict:
             resp.raise_for_status()
             data = resp.json()
     except httpx.HTTPError as exc:
-        raise ExchangeRateError(f"Exchange-rate service unavailable: {exc}") from exc
+        logger.warning("Exchange-rate service unavailable: %s", exc)
+        raise ExchangeRateError(
+            "Currency conversion is temporarily unavailable. Please try again shortly."
+        ) from exc
 
     if data.get("result") != "success":
-        raise ExchangeRateError(f"Exchange-rate service returned an error: {data}")
+        logger.warning("Exchange-rate service returned an error: %s", data)
+        raise ExchangeRateError(
+            "Currency conversion is temporarily unavailable. Please try again shortly."
+        )
 
     _cache["rates"] = data
     _cache["fetched_at"] = now

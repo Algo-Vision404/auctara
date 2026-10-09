@@ -10,7 +10,10 @@ import { BudgetBar } from "@/components/agents/BudgetBar";
 import { api, ApiError } from "@/lib/api";
 import { Agent } from "@/lib/types";
 import { money, titleCase, shortTime } from "@/lib/format";
-import { Bot, ShieldCheck, Ban, Send, Loader2, ArrowUpRight, ReceiptText, UserX, Trash2 } from "lucide-react";
+import {
+  Bot, ShieldCheck, Ban, Send, Loader2, ArrowUpRight, ReceiptText, UserX, Trash2,
+  FlaskConical, ChevronDown, ChevronUp,
+} from "lucide-react";
 
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +27,15 @@ export default function AgentDetailPage() {
   const [retiring, setRetiring] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [negativeTestOptions, setNegativeTestOptions] = useState<{ code: string; description: string }[]>([]);
+  const [negativeTest, setNegativeTest] = useState("");
+  const [showQaPanel, setShowQaPanel] = useState(false);
+
+  useEffect(() => {
+    // Sandbox QA options rarely change and never depend on this agent, so
+    // this is a one-time fetch, not part of the 6s agent poll below.
+    api.negativeTestOptions().then(setNegativeTestOptions).catch(() => {});
+  }, []);
 
   function load() {
     api
@@ -57,6 +69,7 @@ export default function AgentDetailPage() {
         agent_id: agent.id,
         prompt,
         max_amount: maxAmount ? Number(maxAmount) : null,
+        paypal_negative_test: negativeTest || null,
       });
       router.push(`/tasks/${task.id}`);
     } catch (e) {
@@ -111,7 +124,7 @@ export default function AgentDetailPage() {
   if (error && !agent) {
     return (
       <div className="flex flex-1 flex-col">
-        <TopBar title="Agent" />
+        <TopBar title="Agent" backHref="/agents" />
         <main className="px-5 py-6 md:px-8">
           <div className="card-surface border-l-4 border-l-[var(--color-danger)] p-4 text-sm text-[var(--color-danger)]">
             {error}
@@ -124,7 +137,7 @@ export default function AgentDetailPage() {
   if (!agent) {
     return (
       <div className="flex flex-1 flex-col">
-        <TopBar title="Agent" />
+        <TopBar title="Agent" backHref="/agents" />
         <main className="flex flex-1 items-center justify-center">
           <Loader2 className="animate-spin text-[var(--color-text-muted)]" />
         </main>
@@ -136,7 +149,7 @@ export default function AgentDetailPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <TopBar title={agent.name} subtitle={agent.purpose} />
+      <TopBar title={agent.name} subtitle={agent.purpose} backHref="/agents" backLabel="Back to agents" />
       <main className="flex-1 space-y-6 px-5 py-6 md:px-8">
         {error && (
           <div className="card-surface border-l-4 border-l-[var(--color-warning)] p-4 text-sm text-[var(--color-warning)]">
@@ -286,6 +299,43 @@ export default function AgentDetailPage() {
                   className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
                 />
               </div>
+              {negativeTestOptions.length > 0 && (
+                <div className="rounded-xl border border-dashed border-[var(--color-border)] p-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowQaPanel((v) => !v)}
+                    className="flex w-full items-center justify-between text-left"
+                  >
+                    <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+                      <FlaskConical size={14} /> Sandbox QA (optional)
+                    </span>
+                    {showQaPanel ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                  {showQaPanel && (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs text-[var(--color-text-secondary)]">
+                        Forces PayPal&apos;s own official sandbox <em>negative-testing</em> header on this
+                        task&apos;s one capture call, so PayPal&apos;s real API genuinely returns a real,
+                        documented decline instead of capturing for real. This is PayPal&apos;s own
+                        documented QA mechanism, not fabricated data. Leave as &quot;None&quot; for a normal
+                        task.
+                      </p>
+                      <select
+                        value={negativeTest}
+                        onChange={(e) => setNegativeTest(e.target.value)}
+                        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                      >
+                        <option value="">None (normal flow)</option>
+                        {negativeTestOptions.map((opt) => (
+                          <option key={opt.code} value={opt.code}>
+                            {opt.code} &mdash; {opt.description}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
               {submitError && <p className="text-sm text-[var(--color-danger)]">{submitError}</p>}
               <Button
                 variant="primary"

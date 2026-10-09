@@ -23,18 +23,32 @@ export function buildTimelineStages(tx: Transaction): TimelineStage[] {
   // is handled as a post-process pass below, after the stages have been
   // built normally from whatever real events actually happened.
   const cancelled = find("TASK_CANCELLED_AGENT_REMOVED");
+  // The agent can also pause mid-research to ask the human something (a
+  // clarifying question, or a "found X instead, want it?" check-in) rather
+  // than guessing or giving up. That is a real, "waiting on you" state for
+  // this stage, not just "nothing has happened yet", as long as no proposal
+  // has actually landed since (a later AGENT_ASKED_QUESTION after resuming
+  // would mean another round is in progress; PROPOSAL_CREATED firing after
+  // it means the question was already answered and resolved).
+  const askedQuestion = find("AGENT_ASKED_QUESTION");
+  const proposalCreated = find("PROPOSAL_CREATED");
+  const awaitingReply = askedQuestion && !proposalCreated && !declined;
 
   const stages: TimelineStage[] = [
     {
       key: "proposed",
       label: "Agent Proposed",
       icon: Bot,
-      status: declined ? "failed" : find("PROPOSAL_CREATED") ? "done" : "pending",
-      timestamp: declined?.created_at || find("PROPOSAL_CREATED")?.created_at,
+      status: declined ? "failed" : proposalCreated ? "done" : awaitingReply ? "current" : "pending",
+      timestamp: declined?.created_at || proposalCreated?.created_at || askedQuestion?.created_at,
       detail: declined
         ? `Declined: ${tx.decision_reason || "outside this agent's assigned purpose"}`
-        : tx.merchant
-        ? `${tx.merchant}: ${money(tx.amount, tx.currency || "USD")}`
+        : proposalCreated
+        ? tx.merchant
+          ? `${tx.merchant}: ${money(tx.amount, tx.currency || "USD")}`
+          : undefined
+        : awaitingReply
+        ? `Waiting for your reply: ${tx.pending_question || String(askedQuestion?.payload?.question ?? "")}`
         : undefined,
     },
     {

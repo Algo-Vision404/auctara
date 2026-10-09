@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { Transaction, Agent } from "@/lib/types";
 import { money } from "@/lib/format";
-import { ShieldX, Ban } from "lucide-react";
+import { ShieldX, Ban, Send } from "lucide-react";
 
 export function BlockedCard({ tx, agent }: { tx: Transaction; agent: Agent | null }) {
   // The agent itself can decline a task as outside its assigned purpose
@@ -48,6 +49,20 @@ export function BlockedCard({ tx, agent }: { tx: Transaction; agent: Agent | nul
               can be any one of several, not always the same one. */}
           <p className="mt-1 text-sm text-[var(--color-text)]">{tx.decision_reason}</p>
         </div>
+        {/* Out-of-scope declines are a judgment call about fit with this
+            specific agent's own delegated purpose (see orchestrator.py's
+            OutOfScopeError), not a dollar/category limit. Showing that
+            purpose right here, in the user's own words from when they set
+            this agent up, lets them immediately see what IS in scope and
+            self-correct their next request - no back-and-forth needed. */}
+        {declinedBeforeProposal && agent?.purpose && (
+          <div className="rounded-xl border border-[var(--color-border)] px-4 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              What {agent.name} can actually help with
+            </p>
+            <p className="mt-1 text-sm text-[var(--color-text)]">{agent.purpose}</p>
+          </div>
+        )}
         {agent?.policy && (
           <div className="grid grid-cols-2 gap-3 border-t border-[var(--color-border)] pt-4 text-sm sm:grid-cols-4">
             <PolicyFact label="Max / txn" value={money(agent.policy.max_transaction_amount)} />
@@ -64,6 +79,14 @@ export function BlockedCard({ tx, agent }: { tx: Transaction; agent: Agent | nul
             ? "No research was performed and no PayPal transaction was ever created."
             : "No PayPal transaction was captured."}
         </div>
+        {declinedBeforeProposal && (
+          <Link
+            href={`/agents/${tx.agent_id}`}
+            className="flex w-fit items-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium text-[var(--color-accent)] hover:bg-[var(--color-surface-2)]"
+          >
+            <Send size={16} /> Try a different request
+          </Link>
+        )}
       </div>
     </div>
   );
