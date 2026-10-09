@@ -88,6 +88,13 @@ Every number in the UI comes from a real backend operation:
   real poll loop through the same pipeline as an on-demand task; nothing
   about a "next run" is simulated.
 
+The one deliberate, clearly-labeled exception is an opt-in "Sandbox QA"
+control for demonstrating PayPal failure handling on demand: it uses
+PayPal's own official sandbox negative-testing header to get a real,
+PayPal-documented decline from PayPal's real API for one task's capture
+step, never a fabricated result. Off by default for every normal task. See
+[`docs/NEGATIVE_TESTING.md`](docs/NEGATIVE_TESTING.md).
+
 ## Technology
 
 **Backend:** Python 3.11+, FastAPI, SQLite (WAL mode, `BEGIN IMMEDIATE` for
@@ -157,8 +164,9 @@ agentauth/
 ├── frontend/           Next.js 15 app (dashboard, agents, ledger, schedule,
 │                       policies, audit, etc.)
 ├── docs/
-│   ├── APIMATIC.md     How the PayPal client was rebuilt on PayPal's official APIMatic-generated SDK
-│   └── openapi.json    The live OpenAPI spec, pulled from the running backend
+│   ├── APIMATIC.md          How the PayPal client was rebuilt on PayPal's official APIMatic-generated SDK
+│   ├── NEGATIVE_TESTING.md  How the opt-in "Sandbox QA" PayPal decline demo works, and why it doesn't break "zero mock data"
+│   └── openapi.json         The live OpenAPI spec, pulled from the running backend
 ├── .env.example
 ├── docker-compose.yml  Local multi-container topology (+ optional separate worker profile)
 ├── render.yaml         Render Blueprint (config only, not deployed from this environment)
