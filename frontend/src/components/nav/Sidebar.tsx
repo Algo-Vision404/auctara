@@ -17,7 +17,6 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import { api } from "@/lib/api";
 
 // Grouped (rather than one flat list) so the sidebar reads as a map of the
 // product's actual shape - what you watch day to day, where money and
@@ -130,58 +129,12 @@ function NavSections({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-function SystemStatus() {
-  const [online, setOnline] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    const poll = () =>
-      api
-        .health()
-        .then(() => mounted && setOnline(true))
-        .catch(() => mounted && setOnline(false));
-    poll();
-    const id = setInterval(poll, 20000);
-    return () => {
-      mounted = false;
-      clearInterval(id);
-    };
-  }, []);
-
-  return (
-    <div className="card-surface mt-4 flex items-center gap-2 px-3 py-2.5 text-xs">
-      <span className="relative flex h-2 w-2 shrink-0">
-        {online !== false && (
-          <span
-            className={clsx(
-              "absolute inline-flex h-full w-full rounded-full opacity-75",
-              online === null ? "bg-[var(--color-text-muted)]" : "animate-ping bg-[var(--color-success)]"
-            )}
-          />
-        )}
-        <span
-          className={clsx(
-            "relative inline-flex h-2 w-2 rounded-full",
-            online === null && "bg-[var(--color-text-muted)]",
-            online === true && "bg-[var(--color-success)]",
-            online === false && "bg-[var(--color-danger)]"
-          )}
-        />
-      </span>
-      <span className="font-medium text-[var(--color-text-secondary)]">
-        {online === null ? "Checking backend..." : online ? "Backend online" : "Backend unreachable"}
-      </span>
-    </div>
-  );
-}
-
 export function Sidebar() {
   return (
     <aside className="hidden md:flex md:w-64 md:flex-col md:border-r md:border-[var(--color-border)] md:bg-[var(--color-surface)] md:px-5 md:py-6">
       <Brand />
       <NavSections />
-      <SystemStatus />
-      <p className="mt-3 px-1 text-[11px] leading-snug text-[var(--color-text-muted)]">
+      <p className="mt-4 px-1 text-[11px] leading-snug text-[var(--color-text-muted)]">
         Let AI agents act.
         <br />
         Keep financial authority under your control.
@@ -253,8 +206,7 @@ export function MobileNav() {
           </button>
         </div>
         <NavSections onNavigate={() => setOpen(false)} />
-        <SystemStatus />
-        <p className="mt-3 px-1 text-[11px] leading-snug text-[var(--color-text-muted)]">
+        <p className="mt-4 px-1 text-[11px] leading-snug text-[var(--color-text-muted)]">
           Let AI agents act.
           <br />
           Keep financial authority under your control.
