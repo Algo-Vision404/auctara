@@ -179,3 +179,31 @@ def build_tool_schemas(categories: list[str]) -> list[dict]:
     schemas = list(_STATIC_TOOL_SCHEMAS)
     schemas.insert(4, _create_purchase_proposal_schema(categories))
     return schemas
+
+
+def _find(schemas: list[dict], name: str) -> dict:
+    return next(s for s in schemas if s["function"]["name"] == name)
+
+
+def build_terminal_tool_schemas(categories: list[str]) -> list[dict]:
+    """Only the two tools that actually END a research run with a result:
+    create_purchase_proposal and decline_out_of_scope_task - none of the
+    research tools (search_web, fetch_page, channel3_search_products,
+    get_exchange_rate) that let a run keep stalling indefinitely.
+
+    Used for the final iteration of the research loop as a hard backstop
+    against a model that keeps re-searching ("let me check one more site
+    for a cheaper price...") right up to the iteration budget and then
+    produces nothing at all - a real, observed failure mode, not a
+    hypothetical one. Paired with tool_choice="required" in the API call,
+    this guarantees the model either commits to its best real option found
+    so far, or explicitly declines, instead of the run silently dying with
+    zero result and zero explanation after it already did real, useful
+    research the human never gets to see.
+    """
+    all_schemas = build_tool_schemas(categories)
+    return [
+        _find(all_schemas, "create_purchase_proposal"),
+        _find(all_schemas, "decline_out_of_scope_task"),
+    ]
+

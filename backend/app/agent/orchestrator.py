@@ -15,7 +15,7 @@ from openai import AsyncOpenAI
 
 from app.agent.llm_errors import NOT_CONFIGURED_MESSAGE, humanize_llm_error
 from app.agent.prompts import SYSTEM_PROMPT, build_task_prompt
-from app.agent.tools import build_tool_schemas
+from app.agent.tools import build_terminal_tool_schemas, build_tool_schemas
 from app.audit.integrity import record_audit
 from app.config import get_settings
 from app.database import models
@@ -513,6 +513,7 @@ async def _run_research_loop(
     client = _openrouter_client()
     settings = get_settings()
     tool_schemas = build_tool_schemas(categories)
+    terminal_tool_schemas = build_terminal_tool_schemas(categories)
 
     for step in range(MAX_TOOL_ITERATIONS):
         # Cheap, cooperative check before every round-trip to the model: if
@@ -523,12 +524,38 @@ async def _run_research_loop(
         _ensure_agent_active(agent["id"])
 
         # Weaker/less decisive models can burn the whole research budget
-        # re-searching instead of ever concluding. With 2 calls left, inject
-        # an explicit countdown so the model wraps up on its own terms
-        # (propose with what it already has, or ask ONE clean final
-        # question) instead of silently running out of road.
+        # re-searching instead of ever concluding - a real, observed
+        # failure: a "find the cheapest X" task kept searching for an even
+        # better price round after round and ran out with real options
+        # already in hand but nothing ever submitted. A soft reminder with
+        # 2 calls left gives it a chance to wrap up on its own terms; the
+        # actual guarantee is the hard stop below on the truly last call,
+        # since a model that already ignored one warning cannot be trusted
+        # to honor a second plain-text one.
         remaining = MAX_TOOL_ITERATIONS - step
-        if remaining <= 2:
+        is_final_call = remaining == 1
+        if is_final_call:
+            # Nothing left after this. Research tools are removed from the
+            # schema entirely (not just discouraged by instruction) and
+            # tool_choice is forced, so the model literally cannot choose
+            # to search/fetch again or reply with plain text asking for
+            # more time - its only two options are to commit to its best
+            # real option found so far, or explicitly decline. Either way
+            # the human gets a concrete result instead of silence after
+            # real research already happened.
+            messages.append({
+                "role": "system",
+                "content": (
+                    "This is your LAST available action - there are no tool calls left "
+                    "after this one, and searching/fetching are no longer available. You "
+                    "MUST either call create_purchase_proposal now with the single best "
+                    "real option you already found above (do not invent one), or call "
+                    "decline_out_of_scope_task if nothing you found is usable. Do not "
+                    "attempt to search, fetch, or reply with plain text - neither is "
+                    "possible anymore."
+                ),
+            })
+        elif remaining <= 2:
             messages.append({
                 "role": "system",
                 "content": (
@@ -543,8 +570,8 @@ async def _run_research_loop(
             response = await client.chat.completions.create(
                 model=settings.openrouter_model,
                 messages=messages,
-                tools=tool_schemas,
-                tool_choice="auto",
+                tools=terminal_tool_schemas if is_final_call else tool_schemas,
+                tool_choice="required" if is_final_call else "auto",
                 temperature=0.2,
                 max_tokens=1024,
                 # Several free OpenRouter models are "reasoning" models that
@@ -560,6 +587,7 @@ async def _run_research_loop(
         except Exception as exc:  # noqa: BLE001
             logger.exception("OpenRouter chat.completions.create failed")
             raise AgentError(humanize_llm_error(exc)) from exc
+
 
         choice = response.choices[0]
         msg = choice.message
@@ -847,7 +875,15 @@ async def _run_research_loop(
                     "content": json.dumps({"error": f"Unknown tool {name}"}),
                 })
 
-    raise AgentError("Agent exceeded maximum reasoning steps without producing a proposal.")
+    # Should be effectively unreachable now that the final call above forces
+    # tool_choice onto exactly create_purchase_proposal/decline_out_of_scope_task
+    # - this only still fires if the model ignores that forced choice outright
+    # (a genuinely broken/uncooperative model response), not the "kept
+    # searching forever" failure this used to catch every time.
+    raise AgentError(
+        "This agent searched but couldn't settle on a result in time. Try a more specific "
+        "request (name a product or a price range instead of \"cheapest\"), or try again."
+    )
 
 
 async def _normalize_to_usd(amount: float, currency: str) -> float:
