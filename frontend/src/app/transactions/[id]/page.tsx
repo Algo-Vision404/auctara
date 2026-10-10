@@ -13,6 +13,7 @@ import { Channel3Candidates } from "@/components/transactions/Channel3Candidates
 import { DecisionTimeline } from "@/components/transactions/DecisionTimeline";
 import { Terminal } from "@/components/terminal/Terminal";
 import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { api, ApiError } from "@/lib/api";
 import { Transaction, Agent } from "@/lib/types";
 import { money, titleCase, fullDateTime } from "@/lib/format";
@@ -114,11 +115,37 @@ export default function TransactionDetailPage() {
   }
 
   if (!tx) {
+    // Shape-matched skeletons instead of a blank page + spinner: every
+    // transaction renders into roughly this same vertical sequence
+    // (status row, one state card, research/decision evidence, terminal)
+    // regardless of which state it turns out to be in, so we already know
+    // enough to avoid a jarring blank-then-pop-in.
     return (
       <div className="flex flex-1 flex-col">
         <TopBar title="Transaction" backHref="/activity" backLabel="Back to activity" />
-        <main className="flex flex-1 items-center justify-center">
-          <Loader2 className="animate-spin text-[var(--color-text-muted)]" />
+        <main className="mx-auto w-full max-w-5xl flex-1 space-y-6 px-5 py-6 md:px-8">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-5 w-24 rounded-full" />
+            <Skeleton className="h-5 w-28 rounded-full" />
+          </div>
+          <div className="card-elevated space-y-3 p-6">
+            <Skeleton className="h-5 w-56" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-24 w-full rounded-xl" />
+            ))}
+          </div>
+          <div className="card-surface space-y-4 p-6">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Skeleton className="h-6 w-6 shrink-0 rounded-full" />
+                <Skeleton className="h-4 w-full" />
+              </div>
+            ))}
+          </div>
         </main>
       </div>
     );

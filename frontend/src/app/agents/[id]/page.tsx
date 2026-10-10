@@ -6,12 +6,13 @@ import Link from "next/link";
 import { TopBar } from "@/components/nav/TopBar";
 import { Button } from "@/components/ui/Button";
 import { Badge, stateTone } from "@/components/ui/Badge";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { BudgetBar } from "@/components/agents/BudgetBar";
 import { api, ApiError } from "@/lib/api";
 import { Agent } from "@/lib/types";
 import { money, titleCase, shortTime } from "@/lib/format";
 import {
-  Bot, ShieldCheck, Ban, Send, Loader2, ArrowUpRight, ReceiptText, UserX, UserCheck, Trash2,
+  Bot, ShieldCheck, Ban, Send, ArrowUpRight, ReceiptText, UserX, UserCheck, Trash2,
   FlaskConical, ChevronDown, ChevronUp,
 } from "lucide-react";
 
@@ -158,11 +159,58 @@ export default function AgentDetailPage() {
   }
 
   if (!agent) {
+    // A full-page spinner here would blank out the whole layout on every
+    // visit, even though we already know its rough shape (the same grid
+    // every agent renders into) before a single byte comes back. Shape-
+    // matched skeletons in that same grid read as "this is loading" rather
+    // than "something broke," and don't make the page jump around once the
+    // real content replaces them.
     return (
       <div className="flex flex-1 flex-col">
         <TopBar title="Agent" backHref="/agents" />
-        <main className="flex flex-1 items-center justify-center">
-          <Loader2 className="animate-spin text-[var(--color-text-muted)]" />
+        <main className="flex-1 space-y-6 px-5 py-6 md:px-8">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+            <div className="space-y-6 lg:col-span-3">
+              <div className="card-surface space-y-4 p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Skeleton className="h-10 w-10 rounded-full" />
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-4 w-36" />
+                      <Skeleton className="h-3 w-24" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+                <Skeleton className="h-4 w-full" />
+                <div className="space-y-3 border-t border-[var(--color-border)] pt-4">
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              </div>
+              <div className="card-surface space-y-4 p-6">
+                <Skeleton className="h-4 w-20" />
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  {[0, 1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-16 w-full rounded-lg" />
+                  ))}
+                </div>
+              </div>
+              <div className="card-surface space-y-3 p-6">
+                <Skeleton className="h-4 w-40" />
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} className="h-12 w-full rounded-lg" />
+                ))}
+              </div>
+            </div>
+            <div className="lg:col-span-2">
+              <div className="card-elevated space-y-4 p-6">
+                <Skeleton className="h-4 w-48" />
+                <Skeleton className="h-28 w-full rounded-xl" />
+                <Skeleton className="h-10 w-full rounded-lg" />
+              </div>
+            </div>
+          </div>
         </main>
       </div>
     );
