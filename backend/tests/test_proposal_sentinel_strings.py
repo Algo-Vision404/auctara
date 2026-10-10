@@ -16,13 +16,56 @@ the proposal is accepted in _continue_research.
 """
 from __future__ import annotations
 
+import json
 import time
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 import app.agent.orchestrator as orchestrator
-from app.agent.orchestrator import _clean_optional_str
+from app.agent.orchestrator import _clean_optional_str, _is_blank_or_nullish
 from app.main import app
+
+
+class FakeToolCall:
+    def __init__(self, call_id: str, name: str, arguments: dict):
+        self.id = call_id
+        self.type = "function"
+        self.function = SimpleNamespace(name=name, arguments=json.dumps(arguments))
+
+
+class FakeMessage:
+    def __init__(self, tool_calls=None, content=None):
+        self.tool_calls = tool_calls
+        self.content = content
+
+    def model_dump(self, exclude_none=True):
+        data = {"role": "assistant", "content": self.content}
+        if self.tool_calls:
+            data["tool_calls"] = [
+                {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in self.tool_calls
+            ]
+        if exclude_none:
+            data = {k: v for k, v in data.items() if v is not None}
+        return data
+
+
+class _SequentialCompletions:
+    def __init__(self, messages):
+        self._messages = list(messages)
+        self._idx = 0
+
+    async def create(self, **kwargs):
+        msg = self._messages[min(self._idx, len(self._messages) - 1)]
+        self._idx += 1
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+
+def _fake_client_sequence(messages):
+    client = SimpleNamespace(chat=SimpleNamespace(completions=_SequentialCompletions(messages)))
+    return lambda: client
 
 
 def _permissive_agent(client: TestClient) -> dict:
@@ -61,6 +104,59 @@ def test_clean_optional_str_scrubs_known_sentinels():
     )
     assert _clean_optional_str("Nonesuch Books") == "Nonesuch Books"
     assert _clean_optional_str(None) is None
+
+
+def test_is_blank_or_nullish_extends_the_required_field_check():
+    for junk in ["None", "null", "N/A", "", None]:
+        assert _is_blank_or_nullish(junk) is True
+    assert _is_blank_or_nullish("Baremetrics") is False
+    assert _is_blank_or_nullish(0) is False  # numeric amount, handled separately
+
+
+def test_required_field_sentinel_string_is_bounced_back_not_accepted(monkeypatch):
+    """The missing-field check for create_purchase_proposal's *required*
+    fields (merchant/amount/currency/category/reason) only ever compared
+    against `None`/`""`. If the model writes the literal string "None" for
+    merchant - same failure mode as the optional fields, just on a field
+    that gets displayed everywhere as real transaction data - that used to
+    sail through as "present". It must instead be bounced back to the
+    agent as a tool error (exactly like any other missing field), giving
+    it a chance to self-correct, and a transaction must never end up with
+    merchant/category literally equal to "None" in the database.
+    """
+    with TestClient(app) as client:
+        agent = _permissive_agent(client)
+
+        bad_proposal = FakeMessage(tool_calls=[FakeToolCall(
+            "call_1", "create_purchase_proposal",
+            {
+                "merchant": "None", "amount": 129.0, "currency": "USD",
+                "category": "none", "reason": "Subscription analytics software.",
+                "source_url": "https://baremetrics.com/pricing",
+            },
+        )])
+        real_proposal = FakeMessage(tool_calls=[FakeToolCall(
+            "call_2", "create_purchase_proposal",
+            {
+                "merchant": "Baremetrics", "amount": 129.0, "currency": "USD",
+                "category": "software", "reason": "Subscription analytics software, real price found.",
+                "source_url": "https://baremetrics.com/pricing",
+            },
+        )])
+        monkeypatch.setattr(
+            orchestrator, "_openrouter_client",
+            _fake_client_sequence([bad_proposal, real_proposal]),
+        )
+
+        task = client.post(
+            "/tasks", json={"agent_id": agent["id"], "prompt": "Find subscription analytics software"}
+        ).json()
+        task = _poll_until(client, task["id"], {"FAILED", "COMPLETED", "BLOCKED", "EXECUTING"})
+
+        tx = task["transactions"][0]
+        assert tx["merchant"] != "None"
+        assert tx["category"] != "none"
+        assert tx["merchant"] == "Baremetrics"
 
 
 def test_literal_none_string_from_the_model_never_reaches_the_stored_transaction(monkeypatch):

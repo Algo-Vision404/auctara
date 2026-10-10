@@ -138,6 +138,25 @@ def _clean_optional_str(value: Any) -> Optional[str]:
     return None if value.strip().lower() in _NULLISH_STRINGS else value
 
 
+def _is_blank_or_nullish(value: Any) -> bool:
+    """Same failure mode as above, but for *required* fields (merchant,
+    amount, currency, category, reason). The existing missing-field check
+    below only ever caught `None` or `""` - it does not catch the model
+    writing the literal string "None"/"null"/etc. for a required field it
+    has no real answer for, which would otherwise sail through as a
+    "present" value and show up as a real-looking merchant name or reason
+    in the ledger. Used to extend that same check, not to silently null
+    out a required field (that would violate the column's own NOT NULL
+    invariant) - a required field that's blank/nullish is bounced back to
+    the agent as a tool error, the same as any other missing field.
+    """
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in _NULLISH_STRINGS
+    return False
+
+
 def _openrouter_client() -> AsyncOpenAI:
     settings = get_settings()
     if not settings.openrouter_api_key:
@@ -565,7 +584,7 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str, messages: list
 
             elif name == "create_purchase_proposal":
                 required = ["merchant", "amount", "currency", "category", "reason"]
-                missing = [f for f in required if f not in args or args[f] in (None, "")]
+                missing = [f for f in required if f not in args or _is_blank_or_nullish(args[f])]
                 if missing:
                     messages.append({
                         "role": "tool", "tool_call_id": call.id,
