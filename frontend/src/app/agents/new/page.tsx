@@ -24,7 +24,7 @@ const EXAMPLE =
 
 export default function NewAgentPage() {
   const router = useRouter();
-  const [instructions, setInstructions] = useState(EXAMPLE);
+  const [instructions, setInstructions] = useState("");
   const [draft, setDraft] = useState<PolicyDraft | null>(null);
   const [drafting, setDrafting] = useState(false);
   const [activating, setActivating] = useState(false);
@@ -148,7 +148,17 @@ export default function NewAgentPage() {
       <TopBar title="Create an Agent" subtitle="Natural language → explicit financial authority." backHref="/agents" />
       <main className="mx-auto w-full max-w-3xl flex-1 space-y-6 px-5 py-6 md:px-8">
         <div className={`card-surface space-y-4 p-6 ${pendingQuestion ? "opacity-60" : ""}`}>
-          <label className="text-sm font-semibold">Describe what this agent should do</label>
+          <div className="flex items-center justify-between gap-3">
+            <label className="text-sm font-semibold">Describe what this agent should do</label>
+            <button
+              type="button"
+              onClick={() => setInstructions(EXAMPLE)}
+              disabled={!!pendingQuestion}
+              className="shrink-0 text-xs font-medium text-[var(--color-accent)] hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Try an example
+            </button>
+          </div>
           <textarea
             value={instructions}
             onChange={(e) => setInstructions(e.target.value)}
