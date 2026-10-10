@@ -760,6 +760,28 @@ async def retire_agent(agent_id: str) -> dict:
     return models.get_agent(agent_id)
 
 
+async def reactivate_agent(agent_id: str) -> dict:
+    """The mirror image of retire_agent: flips a RETIRED agent back to
+    ACTIVE so it resumes accepting new tasks. Nothing it had cancelled while
+    retired comes back with it - the transactions/tasks that were force-
+    cancelled and the scheduled tasks that were force-cancelled by
+    _cancel_in_flight_work stay exactly as they are, CANCELLED is a terminal
+    state in the transaction state machine, and recurring schedules are not
+    silently resurrected. Reactivating only restores the ability to accept
+    *new* work going forward; anything the owner wants running again (a
+    recurring schedule in particular) has to be recreated deliberately."""
+    agent = models.get_agent(agent_id)
+    if not agent:
+        raise AgentError("Agent not found.")
+    if agent["status"] != "RETIRED":
+        return agent
+
+    models.update_agent_status(agent_id, "ACTIVE")
+    await emit("AGENT_REACTIVATED", f"{agent['name']} was reactivated and can accept new tasks again.",
+                agent_id=agent_id, payload={"agent_name": agent["name"]})
+    return models.get_agent(agent_id)
+
+
 async def delete_agent(agent_id: str) -> None:
     """Hard removal: every in-flight task/transaction is cancelled exactly as
     retire_agent does, one final AGENT_DELETED record is sealed into the

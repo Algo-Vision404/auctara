@@ -15,6 +15,7 @@ import {
   FileText,
   PackageSearch,
   UserX,
+  UserCheck,
   Trash2,
   XCircle,
   MessageCircleQuestion,
@@ -80,6 +81,11 @@ const META: Record<string, EventMeta> = {
   // ShieldX or TASK_DECLINED_OUT_OF_SCOPE's Ban (both of which mean "the
   // agent's own guardrails stopped a purchase", a different thing).
   AGENT_RETIRED: { icon: UserX, tone: "muted", label: "Agent retired" },
+  // The reverse of AGENT_RETIRED: it only means "accepting new tasks again",
+  // not "everything that was cancelled came back" (see
+  // orchestrator.reactivate_agent), so it gets a positive but still neutral
+  // tone rather than reusing one of the transaction-outcome colors.
+  AGENT_REACTIVATED: { icon: UserCheck, tone: "accent", label: "Agent reactivated" },
   AGENT_DELETED: { icon: Trash2, tone: "danger", label: "Agent deleted" },
   TASK_CANCELLED_AGENT_REMOVED: { icon: XCircle, tone: "muted", label: "Cancelled: agent removed" },
 };

@@ -11,7 +11,7 @@ import { api, ApiError } from "@/lib/api";
 import { Agent } from "@/lib/types";
 import { money, titleCase, shortTime } from "@/lib/format";
 import {
-  Bot, ShieldCheck, Ban, Send, Loader2, ArrowUpRight, ReceiptText, UserX, Trash2,
+  Bot, ShieldCheck, Ban, Send, Loader2, ArrowUpRight, ReceiptText, UserX, UserCheck, Trash2,
   FlaskConical, ChevronDown, ChevronUp,
 } from "lucide-react";
 
@@ -25,6 +25,7 @@ export default function AgentDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [retiring, setRetiring] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [negativeTestOptions, setNegativeTestOptions] = useState<{ code: string; description: string }[]>([]);
@@ -84,7 +85,8 @@ export default function AgentDetailPage() {
     if (
       !window.confirm(
         `Retire ${agent.name}? It will stop accepting new tasks immediately, and anything it has in ` +
-          "progress right now will be cancelled. Its full history stays exactly as it is."
+          "progress right now will be cancelled. Its full history stays exactly as it is, and you can " +
+          "reactivate it later."
       )
     )
       return;
@@ -97,6 +99,20 @@ export default function AgentDetailPage() {
       setActionError(e instanceof ApiError ? e.message : "Failed to retire agent");
     } finally {
       setRetiring(false);
+    }
+  }
+
+  async function handleReactivate() {
+    if (!agent) return;
+    setReactivating(true);
+    setActionError(null);
+    try {
+      const updated = await api.reactivateAgent(agent.id);
+      setAgent(updated);
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.message : "Failed to reactivate agent");
+    } finally {
+      setReactivating(false);
     }
   }
 
@@ -244,22 +260,33 @@ export default function AgentDetailPage() {
             <div className="card-surface space-y-3 border-l-4 border-l-[var(--color-danger)] p-6">
               <h3 className="font-semibold text-[var(--color-danger)]">Danger Zone</h3>
               {actionError && <p className="text-sm text-[var(--color-danger)]">{actionError}</p>}
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] p-3">
-                <div>
-                  <p className="text-sm font-medium">Retire this agent</p>
-                  <p className="text-xs text-[var(--color-text-secondary)]">
-                    Stops it from accepting new tasks and cancels anything in progress. Full history stays visible.
-                  </p>
+              {agent.status === "RETIRED" ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] p-3">
+                  <div>
+                    <p className="text-sm font-medium">Reactivate this agent</p>
+                    <p className="text-xs text-[var(--color-text-secondary)]">
+                      Lets it accept new tasks again. Whatever was cancelled while it was retired (in-flight
+                      tasks, scheduled tasks) stays cancelled &mdash; recreate anything you want running again.
+                    </p>
+                  </div>
+                  <Button variant="secondary" loading={reactivating} onClick={handleReactivate}>
+                    <UserCheck size={16} /> Reactivate
+                  </Button>
                 </div>
-                <Button
-                  variant="secondary"
-                  loading={retiring}
-                  disabled={agent.status !== "ACTIVE"}
-                  onClick={handleRetire}
-                >
-                  <UserX size={16} /> {agent.status === "ACTIVE" ? "Retire" : "Retired"}
-                </Button>
-              </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] p-3">
+                  <div>
+                    <p className="text-sm font-medium">Retire this agent</p>
+                    <p className="text-xs text-[var(--color-text-secondary)]">
+                      Stops it from accepting new tasks and cancels anything in progress. Full history stays
+                      visible, and it can be reactivated later.
+                    </p>
+                  </div>
+                  <Button variant="secondary" loading={retiring} onClick={handleRetire}>
+                    <UserX size={16} /> Retire
+                  </Button>
+                </div>
+              )}
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] p-3">
                 <div>
                   <p className="text-sm font-medium">Permanently delete this agent</p>

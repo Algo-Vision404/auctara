@@ -3,7 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.agent.orchestrator import AgentError, delete_agent as orchestrator_delete_agent, retire_agent
+from app.agent.orchestrator import (
+    AgentError,
+    delete_agent as orchestrator_delete_agent,
+    reactivate_agent,
+    retire_agent,
+)
 from app.agent.policy_drafting import PolicyDraftError, draft_policy_from_text
 from app.database import models
 
@@ -97,6 +102,20 @@ async def retire(agent_id: str):
     orchestrator.retire_agent for exactly what "in flight" covers."""
     try:
         agent = await retire_agent(agent_id)
+    except AgentError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    policy = models.get_active_policy(agent_id)
+    return {**agent, "policy": policy, **_agent_stats(agent_id, policy)}
+
+
+@router.post("/agents/{agent_id}/reactivate")
+async def reactivate(agent_id: str):
+    """The reverse of /retire: a RETIRED agent resumes accepting new tasks.
+    Does not revive anything that was cancelled while it was retired - see
+    orchestrator.reactivate_agent for exactly what does and doesn't come
+    back."""
+    try:
+        agent = await reactivate_agent(agent_id)
     except AgentError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     policy = models.get_active_policy(agent_id)

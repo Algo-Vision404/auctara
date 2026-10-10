@@ -79,6 +79,7 @@ export const api = {
   createAgent: (payload: { name: string; purpose: string; directive: string; policy: Omit<PolicyDraft, "agent_name" | "agent_purpose"> }) =>
     request<Agent>("/agents", { method: "POST", body: JSON.stringify(payload) }),
   retireAgent: (id: string) => request<Agent>(`/agents/${id}/retire`, { method: "POST" }),
+  reactivateAgent: (id: string) => request<Agent>(`/agents/${id}/reactivate`, { method: "POST" }),
   deleteAgent: (id: string) => request<{ deleted: boolean }>(`/agents/${id}`, { method: "DELETE" }),
 
   listTasks: (agentId?: string) => request<Task[]>(`/tasks${agentId ? `?agent_id=${agentId}` : ""}`),

@@ -138,6 +138,53 @@ def test_deleting_agent_removes_live_rows_but_keeps_audit_trail():
         assert any(a["event_type"] == "AGENT_DELETED" for a in agent_events)
 
 
+def test_reactivating_agent_allows_new_tasks_again_without_reviving_cancelled_work():
+    with TestClient(app) as client:
+        agent = client.post("/agents", json=_agent_payload()).json()
+
+        # Something in flight when the agent is retired...
+        task = models.create_task(agent["id"], "Renew the team's project tracker", None, None)
+        tx = models.create_transaction(task["id"], agent["id"])
+        models.update_transaction(tx["id"], state="AWAITING_APPROVAL", decision="APPROVAL_REQUIRED",
+                                   merchant="Notion", amount=120.0, authorized_amount=120.0)
+        sched = client.post("/schedules", json={
+            "agent_id": agent["id"], "prompt": "Renew monthly", "recurrence": "MONTHLY",
+        }).json()
+
+        client.post(f"/agents/{agent['id']}/retire")
+        assert client.get(f"/agents/{agent['id']}").json()["status"] == "RETIRED"
+
+        resp = client.post(f"/agents/{agent['id']}/reactivate")
+        assert resp.status_code == 200
+        reactivated = resp.json()
+        assert reactivated["status"] == "ACTIVE"
+
+        # ...stays cancelled; reactivating only re-enables *new* work.
+        assert client.get(f"/transactions/{tx['id']}").json()["state"] == "CANCELLED"
+        assert client.get(f"/schedules/{sched['id']}").json()["status"] == "CANCELLED"
+
+        # New tasks are accepted again.
+        accepted = client.post("/tasks", json={"agent_id": agent["id"], "prompt": "Renew Figma"})
+        assert accepted.status_code != 400
+
+        event_types = [e["event_type"] for e in client.get(f"/agents/{agent['id']}").json()["activity"]]
+        assert "AGENT_REACTIVATED" in event_types
+
+
+def test_reactivating_active_agent_is_a_no_op():
+    with TestClient(app) as client:
+        agent = client.post("/agents", json=_agent_payload()).json()
+        resp = client.post(f"/agents/{agent['id']}/reactivate")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ACTIVE"
+
+
+def test_reactivating_unknown_agent_returns_404():
+    with TestClient(app) as client:
+        resp = client.post("/agents/agent_does_not_exist/reactivate")
+        assert resp.status_code == 404
+
+
 def test_deleting_unknown_agent_returns_404():
     with TestClient(app) as client:
         resp = client.delete("/agents/agent_does_not_exist")
