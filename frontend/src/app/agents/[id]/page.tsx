@@ -104,6 +104,13 @@ export default function AgentDetailPage() {
 
   async function handleReactivate() {
     if (!agent) return;
+    if (
+      !window.confirm(
+        `Reactivate ${agent.name}? It will be able to accept new tasks again. Anything that was ` +
+          "cancelled while it was retired stays cancelled \u2014 recreate anything you want running again."
+      )
+    )
+      return;
     setReactivating(true);
     setActionError(null);
     try {
