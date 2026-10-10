@@ -12,7 +12,7 @@ import json
 from typing import Any, Optional
 
 from app.config import get_settings
-from app.database.database import get_connection
+from app.database.database import get_connection, immediate_transaction
 from app.database.models import new_id, now_iso, row_to_dict
 
 
@@ -43,25 +43,40 @@ def record_audit(
     task_id: Optional[str] = None,
     agent_id: Optional[str] = None,
 ) -> dict:
-    conn = get_connection()
-    prev_hash = _last_hash()
-    body = {
-        "event_type": event_type,
-        "transaction_id": transaction_id,
-        "task_id": task_id,
-        "agent_id": agent_id,
-        "payload": payload,
-    }
-    canonical = canonical_json(body)
-    record_hash = compute_hash(prev_hash, canonical)
-    record_id = new_id("audit")
-    row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 as next_seq FROM audit_records").fetchone()
-    seq = row["next_seq"]
-    conn.execute(
-        """INSERT INTO audit_records (id, seq, transaction_id, task_id, agent_id, event_type, payload, prev_hash, hash)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
-        (record_id, seq, transaction_id, task_id, agent_id, event_type, json.dumps(payload), prev_hash, record_hash),
-    )
+    # Reading the previous record's hash/seq and inserting the next one is a
+    # classic read-then-write: two records appended "at the same time" could
+    # otherwise both read the same prev_hash/seq and both insert as if they
+    # were the chain's new tail, breaking the one-parent-per-record
+    # invariant verify_chain() depends on - which would make a perfectly
+    # legitimate, untampered chain fail verification, undermining the one
+    # thing this module exists to guarantee. This app's single asyncio
+    # event loop happens to make record_audit() calls atomic today (no
+    # `await` ever appears between the read and the write), but that is an
+    # accident of the current single-worker deployment, not a guarantee -
+    # the exact same reasoning already governs every budget-ledger write
+    # (see immediate_transaction's docstring), so the audit chain, which
+    # makes a much louder promise ("tamper-evident"), gets the same real,
+    # SQLite-level protection rather than relying on it.
+    with immediate_transaction() as conn:
+        prev_hash = _last_hash()
+        body = {
+            "event_type": event_type,
+            "transaction_id": transaction_id,
+            "task_id": task_id,
+            "agent_id": agent_id,
+            "payload": payload,
+        }
+        canonical = canonical_json(body)
+        record_hash = compute_hash(prev_hash, canonical)
+        record_id = new_id("audit")
+        row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 as next_seq FROM audit_records").fetchone()
+        seq = row["next_seq"]
+        conn.execute(
+            """INSERT INTO audit_records (id, seq, transaction_id, task_id, agent_id, event_type, payload, prev_hash, hash)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (record_id, seq, transaction_id, task_id, agent_id, event_type,
+             json.dumps(payload), prev_hash, record_hash),
+        )
     return get_audit_record(record_id)
 
 
