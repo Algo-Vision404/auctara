@@ -630,6 +630,21 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
               // sum/avg/count computed at the bottom, on top of each group
               // row's own aggregated total.
               cellSelection
+              // AG Grid's own clipboard support (cell range copy/paste)
+              // always tries the real navigator.clipboard API first. In
+              // this app's embedded preview iframe (sandbox="allow-scripts",
+              // no clipboard-write grant), that call is blocked by the
+              // browser's Permissions-Policy, which throws, which AG Grid
+              // logs via console.error - and Next's dev overlay counts every
+              // console.error as a blocking error, so clicking/copying cells
+              // a handful of times inflates the "N errors" badge with
+              // nothing actually broken. This flag tells AG Grid to assume
+              // the Clipboard API is unavailable and go straight to its
+              // execCommand-based fallback instead of ever calling (and
+              // failing) navigator.clipboard - copy/paste still works
+              // everywhere, including this preview, this just stops it from
+              // probing an API it already can't use.
+              suppressClipboardApi
               statusBar={statusBar}
               // Simple, reliable native tooltips for the decision_reason /
               // error tooltipValueGetters above - no custom tooltip
