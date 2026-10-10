@@ -117,6 +117,27 @@ def _ensure_agent_active(agent_id: str) -> None:
         raise AgentRetiredError("Agent was retired or deleted while this task was in progress.")
 
 
+# Small/free models in particular have a well-known failure mode: asked for
+# an optional tool argument it has no real value for, it writes the literal
+# word "none"/"null"/"n/a" as a string instead of simply omitting the key.
+# That string is not absent - proposal.get(...) returns it like any other
+# real value - so without this, it flows straight into the database and
+# back out to the UI as if it were a genuine image/listing URL. A frontend
+# truthiness check (`tx.image_url &&`) does not catch it, since a non-empty
+# string is truthy regardless of what it says: the ledger would render a
+# real <img>/<a> pointing at the literal text "None", which the browser
+# then requests as a real (nonsensical, 404ing) path. Scrub it once, here,
+# at the single point every proposal's optional fields enter the system,
+# rather than re-guard it in every place that might ever render one.
+_NULLISH_STRINGS = {"none", "null", "n/a", "na", "undefined", "nil", ""}
+
+
+def _clean_optional_str(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return value
+    return None if value.strip().lower() in _NULLISH_STRINGS else value
+
+
 def _openrouter_client() -> AsyncOpenAI:
     settings = get_settings()
     if not settings.openrouter_api_key:
@@ -250,10 +271,10 @@ async def _continue_research(agent: dict, task: dict, tx_id: str, messages: list
         currency=proposal["currency"].upper(),
         category=proposal["category"].lower(),
         reason=proposal["reason"],
-        source_url=proposal.get("source_url"),
-        image_url=proposal.get("image_url"),
-        retailer=proposal.get("retailer"),
-        channel3_product_id=proposal.get("channel3_product_id"),
+        source_url=_clean_optional_str(proposal.get("source_url")),
+        image_url=_clean_optional_str(proposal.get("image_url")),
+        retailer=_clean_optional_str(proposal.get("retailer")),
+        channel3_product_id=_clean_optional_str(proposal.get("channel3_product_id")),
         expected_amount=round(amount_usd, 2),
     )
     _set_tx_state(tx_id, "RESEARCHING", "PROPOSED")
