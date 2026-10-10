@@ -92,23 +92,32 @@ async def emit(event_type: str, message: str, *, task_id: Optional[str] = None,
 
 
 def _set_tx_state(tx_id: str, current: str, target: str, **fields: Any) -> dict:
-    """Validates the abstract state-machine edge AND re-checks that the row's
-    actual current state in the database still matches what the caller
-    believes it is, before writing. The second check is what actually makes
-    agent retirement/deletion safe: without it, a background task whose
-    `current` was computed before its agent got retired (and its
-    transaction force-cancelled out from under it, see _cancel_task) could
-    otherwise blindly overwrite CANCELLED back onto an active state once its
-    slow LLM/network call finally returns.
+    """Validates the abstract state-machine edge AND atomically re-checks
+    that the row's actual current state in the database still matches what
+    the caller believes it is, in the same write. That re-check is what
+    actually makes agent retirement/deletion safe: without it, a
+    background task whose `current` was computed before its agent got
+    retired (and its transaction force-cancelled out from under it, see
+    _cancel_task) could otherwise blindly overwrite CANCELLED back onto an
+    active state once its slow LLM/network call finally returns.
+
+    It is also what stops two genuinely concurrent callers - a double-
+    click, two open tabs on the same transaction, a retried request after
+    a client-side timeout - from both reading the same starting state and
+    both believing they are the one making this move. That matters
+    whenever a real side effect (most importantly, execute_payment
+    actually calling PayPal) follows right after: at most one caller can
+    ever win the atomic UPDATE below, so at most one of them proceeds.
     """
     transition(current, target)
-    live = models.get_transaction(tx_id)
-    if not live or live["state"] != current:
+    updated = models.atomic_transition(tx_id, current, target, **fields)
+    if updated is None:
+        live = models.get_transaction(tx_id)
         raise InvalidTransition(
             f"Transaction {tx_id} is no longer in state {current} "
             f"(now {live['state'] if live else 'deleted'}); refusing to overwrite."
         )
-    return models.update_transaction(tx_id, state=target, **fields)
+    return updated
 
 
 def _ensure_agent_active(agent_id: str) -> None:

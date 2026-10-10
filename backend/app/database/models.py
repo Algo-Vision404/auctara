@@ -210,6 +210,38 @@ def update_transaction(tx_id: str, **fields: Any) -> dict:
     return get_transaction(tx_id)
 
 
+def atomic_transition(tx_id: str, current: str, target: str, **fields: Any) -> Optional[dict]:
+    """Atomically move a transaction from `current` to `target`, succeeding
+    only if the row is still actually in `current` at the moment of the
+    write. The orchestrator's own abstract state-machine check
+    (`transition()`) validates that current->target is a legal edge at
+    all, but that alone does not stop two concurrent callers who both read
+    the same starting state from both believing they are the one making
+    the move - exactly the shape of bug already fixed for the scheduler
+    and PayPal-continue races. Wrapping the read-check-and-write in one
+    conditional UPDATE inside BEGIN IMMEDIATE means at most one of them
+    can ever match the WHERE clause, so at most one proceeds to whatever
+    real side effect (creating a PayPal order, etc.) comes next.
+
+    Returns the updated row on success, or None if the row was not in
+    `current` right now (lost a race to a concurrent transition, or the
+    caller's belief about the current state was simply stale/wrong).
+    """
+    fields = dict(fields)
+    fields["state"] = target
+    fields["updated_at"] = now_iso()
+    cols = ", ".join(f"{k}=?" for k in fields)
+    values = list(fields.values()) + [tx_id, current]
+    with immediate_transaction() as conn:
+        cur = conn.execute(
+            f"UPDATE transactions SET {cols} WHERE id=? AND state=?",
+            values,
+        )
+        if cur.rowcount != 1:
+            return None
+    return get_transaction(tx_id)
+
+
 def claim_paypal_continue(tx_id: str) -> bool:
     """Atomically claim the right to call PayPal's authorize/capture APIs
     for this transaction's `continue_after_paypal_approval` step. Returns
