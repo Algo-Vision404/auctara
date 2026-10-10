@@ -18,6 +18,7 @@ def policy_from_row(row: dict) -> Policy:
         price_variance_tolerance=row["price_variance_tolerance"],
         blocked_categories=row["blocked_categories"],
         allowed_categories=row["allowed_categories"],
+        categories=row.get("categories") or [],
     )
 
 
@@ -51,4 +52,5 @@ DEFAULT_POLICY = {
     "price_variance_tolerance": 0.05,
     "blocked_categories": ["gambling", "crypto", "adult"],
     "allowed_categories": [],
+    "categories": [],
 }

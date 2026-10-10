@@ -15,7 +15,7 @@ from openai import AsyncOpenAI
 
 from app.agent.llm_errors import NOT_CONFIGURED_MESSAGE, humanize_llm_error
 from app.agent.prompts import SYSTEM_PROMPT, build_task_prompt
-from app.agent.tools import TOOL_SCHEMAS
+from app.agent.tools import build_tool_schemas
 from app.audit.integrity import record_audit
 from app.config import get_settings
 from app.database import models
@@ -279,7 +279,9 @@ async def _continue_research(agent: dict, task: dict, tx_id: str, messages: list
         return
 
     try:
-        proposal = await _run_research_loop(agent, task, tx_id, messages)
+        proposal = await _run_research_loop(
+            agent, task, tx_id, messages, policy_row.get("categories", [])
+        )
     except NeedsInputError as exc:
         await _ask_clarifying_question(tx_id, task_id, agent["id"], str(exc), messages)
         return
@@ -494,14 +496,23 @@ def _channel3_product_ids_seen(messages: list[dict]) -> set[str]:
     return set(_channel3_products_seen(messages).keys())
 
 
-async def _run_research_loop(agent: dict, task: dict, tx_id: str, messages: list[dict]) -> dict:
+async def _run_research_loop(
+    agent: dict, task: dict, tx_id: str, messages: list[dict], categories: list[str],
+) -> dict:
     """Runs up to MAX_TOOL_ITERATIONS more turns of the tool-calling loop,
     mutating `messages` in place as it goes. `messages` may already contain
     prior turns from an earlier call that paused on NeedsInputError and was
     since resumed with a human reply appended - this function has no memory
-    of its own, all continuity lives in the caller-owned message list."""
+    of its own, all continuity lives in the caller-owned message list.
+
+    `categories` is this agent's own policy.categories: the exact
+    create_purchase_proposal `category` enum built for this run, scoped to
+    what this specific agent actually buys rather than one list shared by
+    every agent on the platform (see app/agent/tools.py build_tool_schemas).
+    """
     client = _openrouter_client()
     settings = get_settings()
+    tool_schemas = build_tool_schemas(categories)
 
     for step in range(MAX_TOOL_ITERATIONS):
         # Cheap, cooperative check before every round-trip to the model: if
@@ -532,7 +543,7 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str, messages: list
             response = await client.chat.completions.create(
                 model=settings.openrouter_model,
                 messages=messages,
-                tools=TOOL_SCHEMAS,
+                tools=tool_schemas,
                 tool_choice="auto",
                 temperature=0.2,
                 max_tokens=1024,

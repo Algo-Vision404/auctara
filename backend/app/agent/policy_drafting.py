@@ -6,14 +6,22 @@ resulting policy via the API/UI.
 
 Drafting is a short, bounded conversation, not a single blind guess: when
 the user's instructions leave something materially important unresolved
-(scope, budget, or a named exclusion that doesn't map onto this agent's
-fixed category vocabulary), the model asks ONE short clarifying question
-and the caller (the /agents/draft-policy route) pauses and hands it to the
-human, exactly like the main research loop's NEEDS_INPUT pattern. The
-conversation itself is just a plain list of messages the caller owns and
-re-sends, grown by one answer each round - there is no server-side session
-for this (unlike a real task/transaction), since no agent record exists yet
-at draft time to hang that state off of.
+(scope, budget, or a named exclusion that doesn't map onto this agent's own
+category vocabulary), the model asks ONE short clarifying question and the
+caller (the /agents/draft-policy route) pauses and hands it to the human,
+exactly like the main research loop's NEEDS_INPUT pattern. The conversation
+itself is just a plain list of messages the caller owns and re-sends, grown
+by one answer each round - there is no server-side session for this (unlike
+a real task/transaction), since no agent record exists yet at draft time to
+hang that state off of.
+
+Categories are NOT a single fixed list shared by every agent on the
+platform. Each draft invents its own small, closed category vocabulary
+(the "categories" field below) that actually fits what THIS agent buys, and
+that per-agent list becomes the create_purchase_proposal tool's `category`
+enum for this agent specifically once activated (see app/agent/tools.py
+build_tool_schemas and app/agent/categories.py's FALLBACK_CATEGORIES, used
+only as a last-resort safety net).
 """
 from __future__ import annotations
 
@@ -22,7 +30,6 @@ import logging
 
 from openai import AsyncOpenAI
 
-from app.agent.categories import PURCHASE_CATEGORIES
 from app.agent.llm_errors import NOT_CONFIGURED_MESSAGE, humanize_llm_error
 from app.config import get_settings
 
@@ -68,6 +75,7 @@ The policy_draft object itself must match exactly this shape:
   "monthly_limit": number,
   "velocity": {{"max_transactions": integer, "window_minutes": integer}},
   "price_variance_tolerance": number (0-1, default 0.05),
+  "categories": [string],
   "blocked_categories": [string],
   "allowed_categories": [string],
   "assumptions": [string]
@@ -90,50 +98,71 @@ handful. Defaulting allowed_categories to [] (unrestricted) when that is \
 wrong is the single highest blast-radius mistake this draft can make, so \
 if it is genuinely unclear, ask rather than default to unrestricted.
 - The user names something to exclude (e.g. "never buy gambling or \
-crypto") that is NOT one of this agent's fixed classification categories: \
-{', '.join(PURCHASE_CATEGORIES)}. Tell them plainly, inside the question \
-itself, that an exclusion like that can only ever be enforced as a \
-best-effort text match against a proposal's merchant/product/reason (it \
-cannot be a guaranteed category block, since the purchasing agent has no \
-category for it), and confirm they still want it recorded that way - or \
-ask if they actually meant one of the real categories instead.
+crypto") that clearly would NOT be one of the purchasing categories you'd \
+define for this agent (see "categories" below). Tell them plainly, inside \
+the question itself, that an exclusion like that can only ever be \
+enforced as a best-effort text match against a proposal's \
+merchant/product/reason (it cannot be a guaranteed category block, since \
+nothing this agent buys would ever be classified that way), and confirm \
+they still want it recorded as such.
 
 Do NOT ask about anything else. Small, non-material details (exact cents, \
-whether an obvious SaaS tool is "software" or "subscriptions", a velocity \
-window) should just be filled in with a sensible default, never asked \
-about. Never ask more than one question per reply, and never ask more than \
-{MAX_POLICY_CLARIFICATION_ROUNDS} questions across the whole conversation.
+exactly which of two near-identical categories something belongs in, a \
+velocity window) should just be filled in with a sensible default, never \
+asked about. Never ask more than one question per reply, and never ask \
+more than {MAX_POLICY_CLARIFICATION_ROUNDS} questions across the whole \
+conversation.
 
 Rules for the policy_draft itself, once you are ready to produce it:
 - approval_threshold is the amount the agent can spend WITHOUT asking a human.
 - max_transaction_amount is the absolute ceiling. Anything above it must be \
 blocked outright, even with approval. It should be >= approval_threshold. If \
 the user does not imply a hard ceiling, set it to 1.5x the approval_threshold.
+- "categories" is this agent's OWN purchasing vocabulary - invent it \
+yourself, specific to what the user actually described, never copy a \
+generic platform-wide list. Every purchase this agent ever makes will be \
+forced to classify as exactly one of these, so keep it tight: usually \
+3-7 short, plain, lowercase entries that are genuinely distinct kinds of \
+things this specific agent buys, plus "other" as a catch-all last entry. \
+Examples: a SaaS-subscriptions agent might get \
+["software", "subscriptions", "other"]; a catering agent might get \
+["ingredients", "equipment", "delivery", "other"]; a travel-booking agent \
+might get ["flights", "hotels", "ground_transport", "other"]. Do not \
+invent categories for things the user never mentioned the agent buying.
 - allowed_categories is the single most important scoping control you set: \
 when it is non-empty, the agent can ONLY ever purchase in those exact \
-categories, no matter what it is later asked to buy. The purchasing agent \
-always classifies what it buys into one of exactly these categories: \
-{', '.join(PURCHASE_CATEGORIES)}. Pick every category from that exact list \
-(lowercase, verbatim) that is a genuine, direct fit for the purpose the \
-user described, and put them in allowed_categories. For example, "manage \
-our SaaS subscriptions" implies ["software", "subscriptions"], not every \
-category: it must NOT also include "travel" or "other" just because they \
-exist in the list. This is what actually stops a narrowly-scoped agent \
-from being used for something unrelated later (like buying snacks or \
-travel) even if that later request looks small, cheap, or easy to \
-satisfy: it is rejected deterministically by category, before any AI \
-judgment call is involved again.
+categories, no matter what it is later asked to buy. Every entry must be \
+one of the exact values you put in "categories" above (lowercase, \
+verbatim) - never a category you didn't also define. For example, if the \
+user describes "manage our SaaS subscriptions" and you defined categories \
+as ["software", "subscriptions", "other"], allowed_categories should be \
+["software", "subscriptions"], not every category you listed: "other" \
+must NOT be included just because it exists in the vocabulary. This is \
+what actually stops a narrowly-scoped agent from being used for something \
+unrelated later (like buying snacks or travel) even if that later request \
+looks small, cheap, or easy to satisfy: it is rejected deterministically \
+by category, before any AI judgment call is involved again.
 - Only leave allowed_categories empty if the user's own instructions (or \
 their answers to your questions) describe broad, general-purpose \
 purchasing authority across categories (e.g. "handle all company \
 purchasing" or "buy anything the team needs"), never as an unexamined \
 default when the purpose is actually narrow.
 - blocked_categories is a secondary, explicit exclusion list on top of \
-allowed_categories. Put a genuine category name in it when the user names \
-one of the fixed categories above; put a free-text term in it when they \
-name something else (e.g. "gambling", "crypto") only AFTER you've \
-confirmed with them, per the clarifying-question rule above, that they \
-understand it will only ever be enforced as a best-effort text match.
+allowed_categories. Put a value from your own "categories" list in it \
+when the user wants to exclude one of this agent's real purchasing \
+categories. Put a free-text term in it when they name something that \
+isn't one of your categories at all (e.g. "gambling", "crypto", \
+"alcohol") - ALWAYS actually add it to blocked_categories, never merely \
+describe or promise it elsewhere without adding it. If you still have a \
+clarifying-question round available, you may use it to confirm they \
+understand this will only ever be a best-effort text match rather than a \
+guaranteed block - but if you don't ask (you've already used your \
+question on something else, or you're out of rounds), still add the term \
+to blocked_categories AND disclose the best-effort limitation via \
+"assumptions" instead of asking. Never let "assumptions" claim an \
+exclusion was recorded, applied, or will be enforced unless it is \
+actually present in blocked_categories in this same draft - that would be \
+telling the user something is protected against when it is not.
 - "assumptions" lists, in your own plain words, the handful of decisions \
 you made that would actually matter to the person reading this - money \
 ceilings and scope, never internal plumbing. Never write a field name \
@@ -296,13 +325,35 @@ async def draft_policy_step(conversation: list[dict]) -> dict:
 
     draft.setdefault("velocity", {"max_transactions": 5, "window_minutes": 60})
     draft.setdefault("price_variance_tolerance", 0.05)
+    draft.setdefault("categories", [])
     draft.setdefault("blocked_categories", [])
     draft.setdefault("allowed_categories", [])
     draft.setdefault("assumptions", [])
     draft.setdefault("agent_name", "New Agent")
     original_instructions = next((m.get("content", "") for m in conversation if m.get("role") == "user"), "")
     draft.setdefault("agent_purpose", original_instructions[:140])
+    draft["categories"] = _normalize_categories(draft.get("categories"), draft.get("allowed_categories"))
     return draft
+
+
+def _normalize_categories(categories, allowed_categories) -> list[str]:
+    """Lowercases/dedupes the model's own invented category vocabulary, and
+    defensively folds in anything it put in allowed_categories but forgot
+    to also declare in categories - without this, an allowed category that
+    isn't in the agent's own vocabulary would never be selectable by
+    create_purchase_proposal's enum (see tools.py build_tool_schemas),
+    silently making that part of allowed_categories dead and unreachable.
+    Always ensures "other" is present as a catch-all, unless the model
+    produced no categories at all (left empty, so callers fall back to
+    FALLBACK_CATEGORIES instead of a single-value "other"-only agent)."""
+    seen: list[str] = []
+    for raw in [*(categories or []), *(allowed_categories or [])]:
+        c = str(raw or "").strip().lower()
+        if c and c not in seen:
+            seen.append(c)
+    if seen and "other" not in seen:
+        seen.append("other")
+    return seen
 
 
 async def draft_policy_from_text(instructions: str) -> dict:

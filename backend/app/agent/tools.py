@@ -6,9 +6,14 @@ only by the deterministic orchestrator after the model has finished.
 """
 from __future__ import annotations
 
-from app.agent.categories import PURCHASE_CATEGORIES
+from app.agent.categories import FALLBACK_CATEGORIES
 
-TOOL_SCHEMAS = [
+# All tools except create_purchase_proposal are identical for every agent,
+# so they're built once as a plain constant. create_purchase_proposal's
+# `category` field is deliberately NOT in here: it has to be a hard enum
+# scoped to each individual agent's own category vocabulary (see
+# build_tool_schemas below), so it can't be a static, shared definition.
+_STATIC_TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
@@ -84,55 +89,6 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
-            "name": "create_purchase_proposal",
-            "description": (
-                "Submit the single best purchase recommendation found during research. "
-                "This does NOT execute a purchase. It only creates a proposal that a "
-                "separate deterministic policy engine will evaluate."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "merchant": {"type": "string"},
-                    "product_name": {"type": "string"},
-                    "amount": {"type": "number", "description": "Price in `currency`."},
-                    "currency": {"type": "string", "description": "3-letter ISO currency code"},
-                    "category": {
-                        "type": "string",
-                        # A hard enum, not just a description hint: the policy
-                        # engine's allowed/blocked category lists are only
-                        # ever expressed in this exact fixed vocabulary (see
-                        # categories.py), so if this were left as free text
-                        # the model could emit a category (e.g. "food") that
-                        # no policy could ever have been configured to allow,
-                        # causing a genuinely in-scope, correctly-researched
-                        # purchase to be wrongly blocked for a reason no
-                        # human ever had a chance to anticipate or fix.
-                        "enum": PURCHASE_CATEGORIES,
-                        "description": f"One of: {', '.join(PURCHASE_CATEGORIES)}",
-                    },
-                    "reason": {"type": "string", "description": "Why this option was chosen."},
-                    "source_url": {"type": "string", "description": "URL of the listing found."},
-                    "image_url": {
-                        "type": "string",
-                        "description": "Product image URL, if this candidate came from channel3_search_products.",
-                    },
-                    "retailer": {
-                        "type": "string",
-                        "description": "Retailer domain, if this candidate came from channel3_search_products.",
-                    },
-                    "channel3_product_id": {
-                        "type": "string",
-                        "description": "Channel3 product id, if this candidate came from channel3_search_products.",
-                    },
-                },
-                "required": ["merchant", "amount", "currency", "category", "reason", "source_url"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "decline_out_of_scope_task",
             "description": (
                 "Decline to research or propose anything because this task has no "
@@ -156,3 +112,70 @@ TOOL_SCHEMAS = [
         },
     },
 ]
+
+
+def _create_purchase_proposal_schema(categories: list[str]) -> dict:
+    vocabulary = categories or FALLBACK_CATEGORIES
+    return {
+        "type": "function",
+        "function": {
+            "name": "create_purchase_proposal",
+            "description": (
+                "Submit the single best purchase recommendation found during research. "
+                "This does NOT execute a purchase. It only creates a proposal that a "
+                "separate deterministic policy engine will evaluate."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "merchant": {"type": "string"},
+                    "product_name": {"type": "string"},
+                    "amount": {"type": "number", "description": "Price in `currency`."},
+                    "currency": {"type": "string", "description": "3-letter ISO currency code"},
+                    "category": {
+                        "type": "string",
+                        # A hard enum, not just a description hint: the policy
+                        # engine's allowed/blocked category lists for THIS
+                        # agent are only ever expressed in this agent's own
+                        # vocabulary (see categories.py / Policy.categories),
+                        # so if this were left as free text the model could
+                        # emit a category that no policy could ever have been
+                        # configured to allow, causing a genuinely in-scope,
+                        # correctly-researched purchase to be wrongly blocked
+                        # for a reason no human ever had a chance to
+                        # anticipate or fix.
+                        "enum": vocabulary,
+                        "description": f"One of: {', '.join(vocabulary)}",
+                    },
+                    "reason": {"type": "string", "description": "Why this option was chosen."},
+                    "source_url": {"type": "string", "description": "URL of the listing found."},
+                    "image_url": {
+                        "type": "string",
+                        "description": "Product image URL, if this candidate came from channel3_search_products.",
+                    },
+                    "retailer": {
+                        "type": "string",
+                        "description": "Retailer domain, if this candidate came from channel3_search_products.",
+                    },
+                    "channel3_product_id": {
+                        "type": "string",
+                        "description": "Channel3 product id, if this candidate came from channel3_search_products.",
+                    },
+                },
+                "required": ["merchant", "amount", "currency", "category", "reason", "source_url"],
+            },
+        },
+    }
+
+
+def build_tool_schemas(categories: list[str]) -> list[dict]:
+    """The full tool list a purchasing run should see, with
+    create_purchase_proposal's `category` enum scoped to this specific
+    agent's own category vocabulary (`categories`, normally an agent's
+    policy.categories) instead of one list shared by every agent on the
+    platform. Falls back to FALLBACK_CATEGORIES only if `categories` is
+    empty (e.g. an agent created before per-agent categories existed).
+    """
+    schemas = list(_STATIC_TOOL_SCHEMAS)
+    schemas.insert(4, _create_purchase_proposal_schema(categories))
+    return schemas

@@ -97,6 +97,14 @@ export default function NewAgentPage() {
     setActivating(true);
     setError(null);
     try {
+      // The "Permitted Categories" editor below lets the user manually add
+      // a category the drafting AI never declared in draft.categories. If
+      // we sent draft.categories as-is, that hand-typed category would be
+      // missing from the purchasing tool's enum and become silently
+      // unreachable - the agent could never actually buy in a category the
+      // user just told it to allow. Folding allowed_categories in here
+      // guarantees anything the user permits is always selectable.
+      const categories = Array.from(new Set([...draft.categories, ...draft.allowed_categories]));
       const agent = await api.createAgent({
         name: draft.agent_name,
         purpose: draft.agent_purpose,
@@ -108,6 +116,7 @@ export default function NewAgentPage() {
           monthly_limit: draft.monthly_limit,
           velocity: draft.velocity,
           price_variance_tolerance: draft.price_variance_tolerance,
+          categories,
           blocked_categories: draft.blocked_categories,
           allowed_categories: draft.allowed_categories,
         },

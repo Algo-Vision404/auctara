@@ -47,6 +47,13 @@ class PolicyPayload(BaseModel):
     price_variance_tolerance: float = Field(default=0.05, ge=0)
     blocked_categories: list[str] = Field(default_factory=list)
     allowed_categories: list[str] = Field(default_factory=list)
+    # This agent's own fixed category vocabulary (what create_purchase_proposal's
+    # `category` enum will be built from for this agent specifically - see
+    # app/agent/tools.py build_tool_schemas). Normally comes straight from a
+    # draft_policy_step() draft; defaults to [] (falls back to
+    # FALLBACK_CATEGORIES at purchase time) only for agents created without
+    # going through drafting.
+    categories: list[str] = Field(default_factory=list)
 
 
 class CreateAgentRequest(BaseModel):

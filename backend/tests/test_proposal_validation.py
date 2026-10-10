@@ -189,7 +189,7 @@ def test_deterministic_backstop_catches_zero_amount_even_if_tool_check_is_bypass
     with TestClient(app) as client:
         agent = _permissive_agent(client)
 
-        async def _fake_research_loop(agent_, task_, tx_id_, messages_):
+        async def _fake_research_loop(agent_, task_, tx_id_, messages_, categories_):
             return {
                 "merchant": "Baremetrics", "amount": 0.0, "currency": "USD",
                 "category": "software", "reason": "bypassed validation",

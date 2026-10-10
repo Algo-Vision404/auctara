@@ -117,7 +117,13 @@ export const api = {
   continuePaypal: (id: string) => request<Transaction>(`/transactions/${id}/paypal/continue`, { method: "POST" }),
 
   getPolicy: (agentId: string) => request<Policy>(`/policies/${agentId}`),
-  updatePolicy: (agentId: string, payload: Omit<PolicyDraft, "agent_name" | "agent_purpose">) =>
+  // Deliberately excludes "categories": this endpoint only edits
+  // limits/velocity/blocked-and-allowed-categories. The agent's own fixed
+  // category vocabulary was chosen for its specific purpose at drafting
+  // time and this form has no UI to redefine it - the backend always
+  // carries the existing value forward on every edit instead of accepting
+  // one here, so it's not part of this payload's shape at all.
+  updatePolicy: (agentId: string, payload: Omit<PolicyDraft, "agent_name" | "agent_purpose" | "categories">) =>
     request<Policy>(`/policies/${agentId}`, { method: "PUT", body: JSON.stringify(payload) }),
   evaluatePolicy: (payload: { agent_id: string; amount: number; category: string }) =>
     request(`/policies/evaluate`, { method: "POST", body: JSON.stringify(payload) }),

@@ -64,5 +64,15 @@ def update_policy(agent_id: str, req: UpdatePolicyRequest):
         raise HTTPException(status_code=404, detail="Agent not found")
     if req.max_transaction_amount < req.approval_threshold:
         raise HTTPException(status_code=400, detail="max_transaction_amount must be >= approval_threshold")
-    conn_policy = models.create_policy(agent_id, req.model_dump())
+    # This form only edits limits/velocity/blocked-and-allowed-categories -
+    # there is no UI here for redefining the agent's own fixed category
+    # vocabulary (policy.categories), which was deliberately chosen for
+    # this agent's specific purpose at drafting time. Always carry it
+    # forward from whatever's currently active rather than accepting it
+    # from this request, so a routine limit tweak can never silently wipe
+    # it back to empty/fallback.
+    existing = models.get_active_policy(agent_id)
+    payload = req.model_dump()
+    payload["categories"] = existing["categories"] if existing else []
+    conn_policy = models.create_policy(agent_id, payload)
     return conn_policy

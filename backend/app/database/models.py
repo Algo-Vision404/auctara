@@ -76,8 +76,8 @@ def create_policy(agent_id: str, policy: dict) -> dict:
         """INSERT INTO policies
         (id, agent_id, max_transaction_amount, approval_threshold, daily_limit, monthly_limit,
          velocity_max_transactions, velocity_window_minutes, price_variance_tolerance,
-         blocked_categories, allowed_categories, active)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,1)""",
+         blocked_categories, allowed_categories, categories, active)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)""",
         (
             policy_id,
             agent_id,
@@ -90,6 +90,7 @@ def create_policy(agent_id: str, policy: dict) -> dict:
             policy.get("price_variance_tolerance", 0.05),
             json.dumps(policy.get("blocked_categories", [])),
             json.dumps(policy.get("allowed_categories", [])),
+            json.dumps(policy.get("categories", [])),
         ),
     )
     return get_active_policy(agent_id)
@@ -105,6 +106,7 @@ def get_active_policy(agent_id: str) -> Optional[dict]:
     if d:
         d["blocked_categories"] = json.loads(d["blocked_categories"])
         d["allowed_categories"] = json.loads(d["allowed_categories"])
+        d["categories"] = json.loads(d.get("categories") or "[]")
     return d
 
 

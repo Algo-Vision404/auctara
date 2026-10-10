@@ -168,7 +168,7 @@ def test_literal_none_string_from_the_model_never_reaches_the_stored_transaction
     with TestClient(app) as client:
         agent = _permissive_agent(client)
 
-        async def _fake_research_loop(agent_, task_, tx_id_, messages_):
+        async def _fake_research_loop(agent_, task_, tx_id_, messages_, categories_):
             return {
                 "merchant": "Baremetrics",
                 "amount": 129.0,

@@ -3,9 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.agent.categories import PURCHASE_CATEGORIES
-
-_VALID_CATEGORIES = {c.lower() for c in PURCHASE_CATEGORIES}
+from app.agent.categories import FALLBACK_CATEGORIES
 
 
 @dataclass
@@ -19,6 +17,19 @@ class Policy:
     price_variance_tolerance: float = 0.05
     blocked_categories: list[str] = field(default_factory=list)
     allowed_categories: list[str] = field(default_factory=list)
+    # This agent's own fixed classification vocabulary - whatever
+    # create_purchase_proposal's category enum was built from for this
+    # specific agent (see app/agent/tools.py build_tool_schemas and
+    # policy_drafting.py). Empty only for agents created before this field
+    # existed; everywhere that needs a vocabulary to compare against should
+    # fall back to FALLBACK_CATEGORIES in that case, never assume every
+    # agent shares one platform-wide list.
+    categories: list[str] = field(default_factory=list)
+
+
+def _valid_categories(policy: Policy) -> set[str]:
+    vocabulary = policy.categories or FALLBACK_CATEGORIES
+    return {c.lower() for c in vocabulary}
 
 
 @dataclass
@@ -61,32 +72,34 @@ def category_not_allowed(policy: Policy, category: str) -> bool:
 
 
 def _free_text_blocked_terms(policy: Policy) -> list[str]:
-    """blocked_categories entries that are NOT one of the agent's fixed
-    classification categories (see app/agent/categories.py).
+    """blocked_categories entries that are NOT one of this agent's own
+    fixed classification categories (policy.categories - see
+    app/agent/categories.py for the legacy fallback).
 
     The policy-drafting prompt explicitly tells its own model to put
     whatever specific thing the user actually named here - e.g. a user who
     says "never buy gambling or crypto" gets blocked_categories =
     ["gambling", "crypto"] - but create_purchase_proposal's own `category`
-    argument is a hard enum of exactly 9 values (software, subscriptions,
-    office, business, hardware, travel, marketing, food, other), and
-    neither "gambling" nor "crypto" is one of them. category_blocked()
-    above can only ever compare against the literal category string the
-    purchasing agent chose, so for a term like this there is no amount the
-    agent proposes a gambling purchase as the "other" category that could
-    ever make category_blocked() true - the exclusion the user explicitly
-    asked for would silently do nothing, forever, with no error or warning
-    anywhere. This is the one example the product's own "Create an Agent"
-    page ships as its default instructions text.
+    argument is a hard enum built from this specific agent's own category
+    list, and a term like "gambling" or "crypto" generally isn't one of
+    them. category_blocked() above can only ever compare against the
+    literal category string the purchasing agent chose, so for a term like
+    this there is no amount the agent proposes a gambling purchase as some
+    other bucket that could ever make category_blocked() true - the
+    exclusion the user explicitly asked for would silently do nothing,
+    forever, with no error or warning anywhere. This is the one example the
+    product's own "Create an Agent" page ships as its default instructions
+    text.
 
-    For entries that genuinely are one of the fixed categories (e.g.
-    blocked_categories containing "software"), category_blocked() already
-    provides real, exact protection - returning those here too would only
-    add false-positive risk (a legitimate "software" purchase whose
-    merchant name happens to contain an unrelated blocked term as a
+    For entries that genuinely are one of this agent's real categories
+    (e.g. blocked_categories containing "software"), category_blocked()
+    already provides real, exact protection - returning those here too
+    would only add false-positive risk (a legitimate "software" purchase
+    whose merchant name happens to contain an unrelated blocked term as a
     substring) for a case that was never actually broken.
     """
-    return [c for c in policy.blocked_categories if c and c.strip().lower() not in _VALID_CATEGORIES]
+    valid = _valid_categories(policy)
+    return [c for c in policy.blocked_categories if c and c.strip().lower() not in valid]
 
 
 def blocked_term_match(policy: Policy, ctx: ProposalContext) -> str | None:

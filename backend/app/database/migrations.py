@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS policies (
     price_variance_tolerance REAL NOT NULL DEFAULT 0.05,
     blocked_categories TEXT NOT NULL DEFAULT '[]',
     allowed_categories TEXT NOT NULL DEFAULT '[]',
+    categories TEXT NOT NULL DEFAULT '[]',
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
@@ -155,6 +156,12 @@ def run_migrations() -> None:
     # the same order twice. Null until claimed; never reset, since each
     # transaction only ever needs to be claimed once.
     _ensure_column(conn, "transactions", "paypal_continue_claimed_at", "TEXT")
+    # This agent's own fixed purchase-category vocabulary (see
+    # app/agent/categories.py / Policy.categories), generated per agent at
+    # drafting time instead of every agent sharing one hardcoded global
+    # list. Empty '[]' for policies created before this column existed;
+    # callers fall back to FALLBACK_CATEGORIES in that case.
+    _ensure_column(conn, "policies", "categories", "TEXT NOT NULL DEFAULT '[]'")
 
 
 def _ensure_column(conn, table: str, column: str, coltype: str) -> None:

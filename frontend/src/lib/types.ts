@@ -28,6 +28,11 @@ export interface Policy {
   price_variance_tolerance: number;
   blocked_categories: string[];
   allowed_categories: string[];
+  // This agent's own fixed purchase-category vocabulary, generated
+  // specifically for what it buys rather than one list shared by every
+  // agent on the platform (see backend app/agent/categories.py). Empty
+  // only for agents created before this field existed.
+  categories: string[];
   active: number;
   created_at: string;
 }
@@ -143,6 +148,12 @@ export interface PolicyDraft {
   monthly_limit: number;
   velocity: { max_transactions: number; window_minutes: number };
   price_variance_tolerance: number;
+  // This agent's own fixed purchase-category vocabulary, invented by the
+  // drafting AI to actually fit what this specific agent buys (e.g.
+  // ["ingredients", "equipment", "other"] for a catering agent) rather than
+  // every agent sharing one generic platform-wide list. allowed_categories
+  // and blocked_categories are drawn from this same list wherever possible.
+  categories: string[];
   blocked_categories: string[];
   allowed_categories: string[];
   // Plain-language things the drafting AI had to decide for itself rather
