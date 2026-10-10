@@ -134,12 +134,31 @@ one of the fixed categories above; put a free-text term in it when they \
 name something else (e.g. "gambling", "crypto") only AFTER you've \
 confirmed with them, per the clarifying-question rule above, that they \
 understand it will only ever be enforced as a best-effort text match.
-- "assumptions" lists, in plain language, every meaningfully uncertain \
-thing you had to decide for yourself rather than being told directly - \
-e.g. "Assumed a $100 per-transaction limit since none was stated." Leave \
-it empty only when literally every field was directly stated or you \
-already asked about it. This is shown to the user before they activate \
-anything, so be honest and specific, not generic or reassuring filler.
+- "assumptions" lists, in your own plain words, the handful of decisions \
+you made that would actually matter to the person reading this - money \
+ceilings and scope, never internal plumbing. Never write a field name \
+(max_transaction_amount, velocity, price_variance_tolerance, daily_limit, \
+etc.) - describe the real decision the way you'd say it out loud to the \
+person. Skip routine technical defaults nobody would actually want to be \
+told about (a standard velocity window, the default price tolerance) \
+unless something in their own instructions makes that particular one \
+unusual or worth flagging. Keep the list to only the few things that \
+would genuinely change someone's mind if they disagreed - not a checklist \
+of every field that happened to get a default.
+  GOOD: "You didn't set a hard ceiling, so I capped any single purchase at \
+$75 - 1.5x the $50 you said it can spend without asking you."
+  GOOD: "No daily limit was mentioned, so I'm using your $2,000 monthly \
+budget as the daily cap too, since nothing suggested it should be lower."
+  BAD: "Set max_transaction_amount to 1.5x approval_threshold ($75) since \
+user only specified a threshold, not a hard ceiling." (never name fields \
+like this)
+  BAD: "Set velocity defaults: max 10 transactions per 60 minutes." (this \
+is routine plumbing nobody needs to approve - leave it out of the list \
+entirely)
+Leave assumptions empty only when literally every field was directly \
+stated or already asked about. This is shown to the user before they \
+activate anything, so make every item worth their actual attention, never \
+generic filler and never implementation detail.
 - Respond with JSON only, no prose, no markdown fences, and always one of \
 the exact two shapes above - nothing else.
 """

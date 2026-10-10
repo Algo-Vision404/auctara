@@ -16,7 +16,7 @@ import {
   TriangleAlert,
   MessageCircleQuestion,
   Send,
-  Lightbulb,
+  Wand2,
 } from "lucide-react";
 
 const EXAMPLE =
@@ -223,29 +223,37 @@ export default function NewAgentPage() {
           </div>
         )}
 
+        {draft && !!draft.assumptions?.length && (
+          <div className="card-elevated animate-enter overflow-hidden">
+            <div className="flex items-start gap-3 border-b border-[var(--color-border)] px-6 py-5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-soft)] text-[var(--color-accent)]">
+                <Wand2 size={16} />
+              </div>
+              <div>
+                <p className="font-semibold text-[var(--color-text)]">A few things I filled in myself</p>
+                <p className="mt-0.5 text-sm text-[var(--color-text-secondary)]">
+                  You didn&apos;t spell these out, so I made a reasonable call. Worth a glance before you
+                  activate.
+                </p>
+              </div>
+            </div>
+            <ul className="divide-y divide-[var(--color-border)]">
+              {draft.assumptions.map((a, i) => (
+                <li key={i} className="flex items-start gap-3 px-6 py-3 text-sm text-[var(--color-text)]">
+                  <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-accent)]" />
+                  {a}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {draft && (
           <div className="card-elevated animate-enter space-y-5 p-6">
             <div className="flex items-center gap-2 text-[var(--color-accent)]">
               <ShieldCheck size={18} />
               <h3 className="font-semibold">Review before activating</h3>
             </div>
-
-            {!!draft.assumptions?.length && (
-              <div className="rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning-soft)] p-4">
-                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--color-warning)]">
-                  <Lightbulb size={13} /> Assumptions made while drafting
-                </p>
-                <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--color-text)]">
-                  {draft.assumptions.map((a, i) => (
-                    <li key={i}>{a}</li>
-                  ))}
-                </ul>
-                <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
-                  These weren&apos;t stated in your instructions - check them below and adjust anything that
-                  isn&apos;t right before activating.
-                </p>
-              </div>
-            )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Agent name">
