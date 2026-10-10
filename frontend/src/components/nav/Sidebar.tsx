@@ -49,6 +49,20 @@ const groups: { label: string; items: { href: string; label: string; icon: typeo
 
 const SETTINGS_ITEM = { href: "/settings", label: "Settings", icon: Settings2 };
 
+// A bordered callout, not a line of muted text floating under the nav -
+// plain small-print at the bottom of a sidebar is one of the clearest
+// "this got scaffolded, not designed" tells, since nothing about its
+// container signals it was placed on purpose.
+function Tagline() {
+  return (
+    <div className="mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2.5 text-[11px] leading-snug text-[var(--color-text-secondary)]">
+      <span className="font-semibold text-[var(--color-text)]">Let AI agents act.</span>
+      <br />
+      Keep financial authority under your control.
+    </div>
+  );
+}
+
 function Brand() {
   return (
     <Link href="/" className="mb-6 flex items-center gap-2.5 px-2">
@@ -59,8 +73,12 @@ function Brand() {
         <ShieldHalf size={19} strokeWidth={2.4} />
       </div>
       <div className="leading-tight">
-        <div className="font-semibold tracking-tight">AgentAuth</div>
-        <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">
+        <div className="text-[15px] font-semibold tracking-tight">AgentAuth</div>
+        {/* An accent-colored tag, not another line of muted gray text -
+            the wordmark already has a neutral subtitle's worth of visual
+            weight without needing a second one. */}
+        <div className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-accent)]">
+          <span className="h-1 w-1 rounded-full bg-[var(--color-accent)]" />
           Delegated Spending
         </div>
       </div>
@@ -85,16 +103,22 @@ function NavRow({
     <Link
       href={href}
       onClick={onNavigate}
+      // The active row is a solid tactile chip (filled accent + a hard
+      // bottom-edge shadow), the same visual language as .btn-primary
+      // everywhere else in the app - not the soft-tint-plus-thin-side-bar
+      // treatment that shows up, pixel for pixel, in almost every
+      // AI-scaffolded admin dashboard. Every row also gets the same
+      // press-down feedback a real button gets on click, so the whole
+      // sidebar reads as one deliberate, physical object instead of a
+      // generic link list.
       className={clsx(
-        "group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors duration-150",
+        "group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-150 active:translate-y-px",
         active
-          ? "bg-[var(--color-accent-soft)] font-semibold text-[var(--color-accent)]"
+          ? "bg-[var(--color-accent)] font-semibold text-[var(--color-accent-ink)]"
           : "font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
       )}
+      style={active ? { boxShadow: "0 2px 0 0 var(--tactile-depth)" } : undefined}
     >
-      {active && (
-        <span className="absolute -left-4 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--color-accent)]" />
-      )}
       <Icon
         size={17}
         strokeWidth={active ? 2.3 : 2}
@@ -113,8 +137,11 @@ function NavSections({ onNavigate }: { onNavigate?: () => void }) {
     <nav className="flex flex-1 flex-col overflow-y-auto scrollbar-thin">
       {groups.map((group, i) => (
         <div key={group.label} className={clsx("flex flex-col gap-0.5", i > 0 && "mt-5")}>
-          <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-            {group.label}
+          <div className="mb-1.5 flex items-center gap-2 px-3">
+            <span className="h-[3px] w-[3px] shrink-0 rounded-full bg-[var(--color-text-muted)]" />
+            <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-muted)]">
+              {group.label}
+            </span>
           </div>
           {group.items.map((item) => (
             <NavRow key={item.href} {...item} active={isActive(item.href)} onNavigate={onNavigate} />
@@ -134,11 +161,7 @@ export function Sidebar() {
     <aside className="hidden md:flex md:w-64 md:flex-col md:border-r md:border-[var(--color-border)] md:bg-[var(--color-surface)] md:px-5 md:py-6">
       <Brand />
       <NavSections />
-      <p className="mt-4 px-1 text-[11px] leading-snug text-[var(--color-text-muted)]">
-        Let AI agents act.
-        <br />
-        Keep financial authority under your control.
-      </p>
+      <Tagline />
     </aside>
   );
 }
@@ -172,7 +195,11 @@ export function MobileNav() {
         onClick={() => setOpen(true)}
         aria-label="Open navigation menu"
         aria-expanded={open}
-        className="fixed bottom-5 right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-accent)] text-[var(--color-accent-ink)]"
+        // rounded-2xl, not rounded-full: a plain circle is the generic
+        // "Material FAB" shape every template reaches for by default. The
+        // brand mark and every tactile button in this app are rounded
+        // squares, so this should be too.
+        className="fixed bottom-5 right-5 z-40 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--color-accent)] text-[var(--color-accent-ink)] transition-transform active:translate-y-px"
         style={{ boxShadow: "0 3px 0 0 var(--tactile-depth), 0 8px 20px rgba(0,0,0,0.18)" }}
       >
         <Menu size={20} />
@@ -206,11 +233,7 @@ export function MobileNav() {
           </button>
         </div>
         <NavSections onNavigate={() => setOpen(false)} />
-        <p className="mt-4 px-1 text-[11px] leading-snug text-[var(--color-text-muted)]">
-          Let AI agents act.
-          <br />
-          Keep financial authority under your control.
-        </p>
+        <Tagline />
       </aside>
     </div>
   );
