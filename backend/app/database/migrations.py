@@ -146,6 +146,15 @@ def run_migrations() -> None:
     # capture attempt, so a real decline from PayPal's sandbox can be shown
     # on demand. Null for every normal task, which behaves exactly as before.
     _ensure_column(conn, "tasks", "paypal_negative_test", "TEXT")
+    # Claim marker for continue_after_paypal_approval: set atomically the
+    # moment a call "wins" the right to actually call PayPal's
+    # authorize/capture APIs for this transaction, so a duplicate/retried
+    # call to the same endpoint (a page refresh while `?paypal=return` is
+    # still in the URL, the user hitting back/forward, PayPal redirecting
+    # twice) can never race the first call into authorizing or capturing
+    # the same order twice. Null until claimed; never reset, since each
+    # transaction only ever needs to be claimed once.
+    _ensure_column(conn, "transactions", "paypal_continue_claimed_at", "TEXT")
 
 
 def _ensure_column(conn, table: str, column: str, coltype: str) -> None:

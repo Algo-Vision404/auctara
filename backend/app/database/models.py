@@ -210,6 +210,29 @@ def update_transaction(tx_id: str, **fields: Any) -> dict:
     return get_transaction(tx_id)
 
 
+def claim_paypal_continue(tx_id: str) -> bool:
+    """Atomically claim the right to call PayPal's authorize/capture APIs
+    for this transaction's `continue_after_paypal_approval` step. Returns
+    True exactly once per transaction (whichever call gets there first);
+    every later call - a duplicate/retried request to the same endpoint
+    from a page refresh while `?paypal=return` is still in the URL, the
+    user hitting back/forward, or PayPal redirecting twice - gets False
+    and must not touch PayPal again for this transaction.
+
+    Uses the same BEGIN IMMEDIATE pattern as budget reservations and the
+    scheduler's due-schedule claim, for the same reason: two concurrent
+    callers can never both believe they're the one entitled to authorize/
+    capture this specific PayPal order.
+    """
+    with immediate_transaction() as conn:
+        cur = conn.execute(
+            "UPDATE transactions SET paypal_continue_claimed_at=?, updated_at=? "
+            "WHERE id=? AND state='VERIFYING' AND paypal_continue_claimed_at IS NULL",
+            (now_iso(), now_iso(), tx_id),
+        )
+        return cur.rowcount == 1
+
+
 # ------------------------------------------------------------- budget math --
 def get_spent_since(agent_id: str, since_iso: str) -> float:
     """Sum of committed budget (RESERVE + CAPTURE_ADJUST, minus RELEASE) since a timestamp."""

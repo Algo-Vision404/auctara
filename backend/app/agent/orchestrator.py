@@ -910,10 +910,36 @@ async def execute_payment(tx_id: str) -> None:
 
 
 async def continue_after_paypal_approval(tx_id: str) -> dict:
-    """Called once the shopper has approved the order on PayPal (redirect flow)."""
+    """Called once the shopper has approved the order on PayPal (redirect flow).
+
+    The frontend already guards against calling this twice from the same
+    page instance (a ref flag that survives React Strict Mode's double-
+    effect dev behavior), but that can't protect against a page refresh
+    while `?paypal=return` is still in the URL, the user hitting back/
+    forward, or PayPal itself redirecting twice - any of which hits this
+    endpoint again as a genuinely new, independent request. Without a
+    server-side claim, two such calls could both see state=VERIFYING and
+    both call PayPal's authorize/capture APIs for the same order.
+    """
     tx = models.get_transaction(tx_id)
-    if not tx or tx["state"] != "VERIFYING" or not tx.get("paypal_order_id"):
+    if not tx or not tx.get("paypal_order_id"):
         raise AgentError("Transaction is not awaiting a PayPal approval.")
+    if tx["state"] != "VERIFYING":
+        # Already moved past VERIFYING - almost certainly a duplicate call
+        # arriving after an earlier one already finished (or failed) it.
+        # Report the real current state rather than erroring: from the
+        # caller's point of view the payment has already been handled, and
+        # a harmless duplicate request should not surface a scary "Failed
+        # to confirm PayPal payment" message for a transaction that is
+        # actually fine (or was already correctly marked FAILED/VOIDED).
+        return tx
+    if not models.claim_paypal_continue(tx_id):
+        # Still VERIFYING, but another call already claimed it a moment
+        # ago and may still be mid-flight. Do not race it by also calling
+        # PayPal's authorize/capture APIs for the same order - just report
+        # the current state; the call that won the claim will move it
+        # forward (or already has, by the time this is read).
+        return models.get_transaction(tx_id)
     try:
         order = await paypal_orders.authorize_order(tx["paypal_order_id"])
     except PayPalError as exc:
