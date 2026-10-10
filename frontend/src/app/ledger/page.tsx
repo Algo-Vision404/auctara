@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { TopBar } from "@/components/nav/TopBar";
 import { OperationsConsoleGrid } from "@/components/ledger/OperationsConsoleGrid";
 import { api, ApiError, subscribeToEvents, StreamEvent } from "@/lib/api";
@@ -25,8 +25,6 @@ export default function LedgerPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
-  const transactionsRef = useRef<Transaction[]>([]);
-  transactionsRef.current = transactions;
 
   const loadAll = useCallback(() => {
     Promise.all([api.listTransactions(), api.listAgents()])
