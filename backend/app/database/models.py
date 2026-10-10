@@ -365,6 +365,40 @@ def list_due_scheduled_tasks(now_iso: str) -> list[dict]:
     return [row_to_dict(r) for r in rows]
 
 
+def claim_due_scheduled_task(sched_id: str, now_iso: str, next_run_at: Optional[str], new_status: str) -> bool:
+    """Atomically re-verify a schedule is still due and advance it past
+    "due" in one indivisible step. Returns True if this call won the claim
+    (the row has been advanced), False if it was no longer due by the time
+    this ran (already claimed by a concurrent scheduler instance, or
+    paused/cancelled in between) - the caller must not fire a task in
+    that case.
+
+    Closes a real race: the scheduler is explicitly designed to run either
+    in-process or as a separate `worker.py` process (see scheduler.py's
+    module docstring) - if both ever run at once (a misconfiguration, or a
+    worker service horizontally scaled to more than one instance), two
+    pollers could both see the same schedule as due via the plain SELECT
+    in list_due_scheduled_tasks before either advances next_run_at, and
+    both fire a real task through the real PayPal pipeline for the same
+    occurrence - double-charging the renewal this schedule represents.
+    This mirrors the same BEGIN IMMEDIATE protection budget reservations
+    already get, for the same reason: two concurrent callers can never
+    both believe they're the one entitled to fire this occurrence.
+    """
+    with immediate_transaction() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM scheduled_tasks WHERE id=? AND status='ACTIVE' AND next_run_at<=?",
+            (sched_id, now_iso),
+        ).fetchone()
+        if not row:
+            return False
+        conn.execute(
+            "UPDATE scheduled_tasks SET next_run_at=?, last_run_at=?, status=?, updated_at=? WHERE id=?",
+            (next_run_at or now_iso, now_iso, new_status, now_iso, sched_id),
+        )
+    return True
+
+
 def update_scheduled_task(sched_id: str, **fields: Any) -> dict:
     conn = get_connection()
     fields["updated_at"] = now_iso()

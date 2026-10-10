@@ -42,6 +42,20 @@ async def run_due_schedules() -> int:
                 models.update_scheduled_task(sched["id"], status="CANCELLED")
             continue
 
+        # Claim this occurrence atomically BEFORE firing anything: advances
+        # next_run_at past "due" inside its own BEGIN IMMEDIATE, re-checking
+        # the row is still due at the moment of the claim. If a concurrent
+        # scheduler instance (see claim_due_scheduled_task's docstring) got
+        # there first, this returns False and we skip it rather than firing
+        # a second real task - and therefore a second real PayPal order -
+        # for the same occurrence.
+        nxt = models.compute_next_run(sched["next_run_at"], sched["recurrence"])
+        won_claim = models.claim_due_scheduled_task(
+            sched["id"], now_iso, nxt, "ACTIVE" if nxt else "COMPLETED"
+        )
+        if not won_claim:
+            continue
+
         task = models.create_task(
             sched["agent_id"], sched["prompt"], sched.get("max_amount"),
             scheduled_task_id=sched["id"],
@@ -52,15 +66,9 @@ async def run_due_schedules() -> int:
             task_id=task["id"], agent_id=agent["id"],
             payload={"scheduled_task_id": sched["id"], "recurrence": sched["recurrence"]},
         )
-
-        nxt = models.compute_next_run(sched["next_run_at"], sched["recurrence"])
-        models.update_scheduled_task(
-            sched["id"],
-            last_run_at=now_iso,
-            last_task_id=task["id"],
-            next_run_at=nxt or sched["next_run_at"],
-            status="ACTIVE" if nxt else "COMPLETED",
-        )
+        # The claim above already advanced next_run_at/status; this just
+        # attaches the real task id once it exists.
+        models.update_scheduled_task(sched["id"], last_task_id=task["id"])
 
         asyncio.create_task(run_task(task["id"]))
         triggered += 1

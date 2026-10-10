@@ -102,6 +102,62 @@ async def test_inactive_agent_schedule_is_skipped_not_fabricated(monkeypatch):
     assert updated["status"] == "CANCELLED"
 
 
+def test_concurrent_claims_on_the_same_due_schedule_never_both_win(monkeypatch):
+    """The scheduler module is explicitly designed to run either in-process
+    or as a separate `worker.py` process (see scheduler.py's module
+    docstring). If both ever ran at once - a misconfiguration, or a worker
+    service horizontally scaled past one instance - two ticks racing on
+    the same due schedule used to be able to both see it as due (the plain
+    SELECT in list_due_scheduled_tasks) before either advanced
+    next_run_at, and both would go on to fire a real task through the real
+    PayPal pipeline for the same occurrence - double-charging the renewal
+    it represents.
+
+    claim_due_scheduled_task is the primitive that's supposed to make that
+    impossible (BEGIN IMMEDIATE around a re-check-then-advance). asyncio
+    can't actually exercise that guarantee here, because every step from
+    the read to the write is synchronous with no `await` in between - the
+    same "accidentally atomic" situation the audit chain had. This test
+    uses real OS threads instead (each gets its own SQLite connection, as
+    in test_audit.py's equivalent test) to prove the protection is real at
+    the database level, not just a property of this particular test
+    happening not to interleave.
+    """
+    import threading
+
+    agent = _make_agent()
+    past = "2020-01-01T00:00:00.000000Z"
+    sched = models.create_scheduled_task(agent["id"], "Renew subscription", 50, "DAILY", past)
+    now_iso = models.now_iso()
+    nxt = models.compute_next_run(sched["next_run_at"], sched["recurrence"])
+
+    results: list[bool] = []
+    errors: list[Exception] = []
+    lock = threading.Lock()
+
+    def worker():
+        try:
+            won = models.claim_due_scheduled_task(sched["id"], now_iso, nxt, "ACTIVE")
+            with lock:
+                results.append(won)
+        except Exception as exc:  # pragma: no cover - surfaced via `errors`
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+
+    assert not errors, f"claim_due_scheduled_task raised under concurrency: {errors}"
+    assert results.count(True) == 1, f"expected exactly one winner, got {results}"
+    assert results.count(False) == 7
+
+    updated = models.get_scheduled_task(sched["id"])
+    assert updated["status"] == "ACTIVE"
+    assert updated["next_run_at"] == nxt
+
+
 def test_compute_next_run_skips_backlog_to_the_future():
     old = "2020-01-01T00:00:00.000000Z"
     nxt = models.compute_next_run(old, "DAILY")
