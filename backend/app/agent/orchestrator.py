@@ -449,6 +449,38 @@ async def _sanitize_human_message(client: AsyncOpenAI, settings, raw: str) -> st
     return raw
 
 
+def _channel3_product_ids_seen(messages: list[dict]) -> set[str]:
+    """Every channel3_product_id this task's own channel3_search_products
+    calls have actually returned so far, scanned straight from the
+    conversation's own tool-result messages - the one source of continuity
+    that survives a NEEDS_INPUT pause/resume (a function-local set would
+    not, since _run_research_loop starts a fresh call, and therefore fresh
+    locals, every time it resumes; `messages` is the only thing the
+    orchestrator actually persists and reloads).
+
+    Used to catch a model attaching a channel3_product_id (and the
+    image_url/retailer that are only ever meant to travel alongside a real
+    one) to a proposal that does not correspond to anything it actually
+    searched for. Without this, the "Verified live listing" badge the
+    transaction page shows off tx.channel3_product_id could be a lie: the
+    model could fabricate an id, or carry one over from an unrelated
+    rejected candidate, and nothing would ever catch it.
+    """
+    ids: set[str] = set()
+    for m in messages:
+        if m.get("role") != "tool":
+            continue
+        try:
+            payload = json.loads(m.get("content") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for p in payload.get("products") or []:
+            pid = p.get("channel3_product_id")
+            if pid:
+                ids.add(pid)
+    return ids
+
+
 async def _run_research_loop(agent: dict, task: dict, tx_id: str, messages: list[dict]) -> dict:
     """Runs up to MAX_TOOL_ITERATIONS more turns of the tool-calling loop,
     mutating `messages` in place as it goes. `messages` may already contain
@@ -682,6 +714,32 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str, messages: list
                     })
                     continue
                 args["amount"] = amount_value
+
+                # The schema's own description for these three fields is
+                # explicit: they only ever belong on a proposal "if this
+                # candidate came from channel3_search_products" - never
+                # trust that claim blindly, since the UI shows a "Verified
+                # live listing" badge directly off channel3_product_id
+                # being present (see ProposalSummary.tsx). Cross-check
+                # against every id this task's own channel3_search_products
+                # calls have actually returned (not a fresh variable each
+                # loop iteration - see _channel3_product_ids_seen - so this
+                # still works correctly across a NEEDS_INPUT pause/resume).
+                claimed_id = _clean_optional_str(args.get("channel3_product_id"))
+                if claimed_id and claimed_id not in _channel3_product_ids_seen(messages):
+                    messages.append({
+                        "role": "tool", "tool_call_id": call.id,
+                        "content": json.dumps({
+                            "error": (
+                                f"channel3_product_id '{claimed_id}' does not match any product "
+                                "a channel3_search_products call in this conversation actually "
+                                "returned. Only set channel3_product_id (and image_url/retailer) "
+                                "when this proposal really is that exact candidate - omit all "
+                                "three fields entirely for anything found via search_web/fetch_page."
+                            )
+                        }),
+                    })
+                    continue
                 return args
 
 
