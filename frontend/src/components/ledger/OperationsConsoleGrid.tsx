@@ -260,7 +260,13 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
     () =>
       transactions.map((t) => ({
         ...t,
-        agent_name: t.agent_name || agentNameById.get(t.agent_id) || t.agent_id,
+        // Falls back to a label, never the raw internal agent_id string
+        // (e.g. "agent_1d359c7e73bb") - that's a database key, not
+        // something a viewer of this console should ever see standing in
+        // for a name. The only time this lookup can miss is a brief window
+        // right after a backend event names a transaction whose agent
+        // isn't in the locally-loaded `agents` list yet.
+        agent_name: t.agent_name || agentNameById.get(t.agent_id) || "Unknown agent",
       })),
     [transactions, agentNameById]
   );
