@@ -12,6 +12,7 @@ import pytest
 from openai import APIStatusError
 
 from app.agent.llm_errors import (
+    DAILY_QUOTA_EXHAUSTED_MESSAGES,
     NOT_CONFIGURED_MESSAGE,
     call_llm_with_retry,
     humanize_llm_error,
@@ -25,6 +26,29 @@ def _status_error(status_code: int, body: dict | None = None) -> APIStatusError:
     request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
     response = httpx.Response(status_code, request=request, json=body or {"error": {"message": "boom"}})
     return APIStatusError("boom", response=response, body=body or {"error": {"message": "boom"}})
+
+
+def _daily_quota_exhausted_error(*, wrapped: bool = False) -> APIStatusError:
+    # Shaped like OpenRouter's real response when a free model's 50
+    # requests/day cap has hit zero (seen live in this project's own
+    # account): metadata.limit_source ends in "daily", and the message
+    # itself says "per-day". The openai SDK's own `exc.body`, as actually
+    # observed live against the real API, holds this *unwrapped* (no outer
+    # "error" key) - `wrapped=True` recreates the raw-HTTP-response shape
+    # instead, since both have been seen and must both be handled.
+    inner = {
+        "message": (
+            "Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free "
+            "model requests per day"
+        ),
+        "code": 429,
+        "metadata": {
+            "headers": {"X-RateLimit-Limit": "50", "X-RateLimit-Remaining": "0"},
+            "limit_source": "openrouter_free_tier_daily",
+        },
+    }
+    body = {"error": inner} if wrapped else inner
+    return _status_error(429, body)
 
 
 @pytest.mark.parametrize("status_code", [402, 401, 429, 500, 503, 418])
@@ -122,3 +146,48 @@ async def test_call_with_retry_does_not_retry_bad_credentials():
     # Non-transient: must fail on the very first attempt, not waste time
     # retrying something that will never succeed.
     assert len(attempts) == 1
+
+
+def test_a_plain_burst_rate_limit_is_transient():
+    # A 429 with no daily-cap metadata at all (the generic/default case) is
+    # still treated as a short-lived burst worth retrying.
+    assert is_transient_llm_error(_status_error(429)) is True
+
+
+def test_an_exhausted_daily_quota_is_not_transient():
+    # A 429 that is specifically OpenRouter's free-model *daily* cap won't
+    # clear up within a few seconds of retrying - it only resets hours
+    # later - so it must not be treated as worth a short retry. This is the
+    # shape actually seen from the real openai SDK against the real API:
+    # exc.body holds the inner error object directly, with no outer
+    # "error" key.
+    assert is_transient_llm_error(_daily_quota_exhausted_error()) is False
+
+
+def test_an_exhausted_daily_quota_is_not_transient_in_the_wrapped_body_shape_too():
+    # Same check, but against the alternate "error" key wrapped shape, in
+    # case a different SDK version or code path ever produces that instead.
+    assert is_transient_llm_error(_daily_quota_exhausted_error(wrapped=True)) is False
+
+
+async def test_call_with_retry_does_not_retry_an_exhausted_daily_quota():
+    attempts = []
+
+    async def daily_quota_exhausted():
+        attempts.append(1)
+        raise _daily_quota_exhausted_error()
+
+    with pytest.raises(APIStatusError):
+        await call_llm_with_retry(daily_quota_exhausted, max_attempts=5, base_delay_seconds=0.01)
+    assert len(attempts) == 1
+
+
+def test_daily_quota_message_is_honest_about_the_wait_not_momentary():
+    message = humanize_llm_error(_daily_quota_exhausted_error())
+    assert message in DAILY_QUOTA_EXHAUSTED_MESSAGES
+    # Must not promise a quick fix like the brief-burst message does - a
+    # daily cap resets hours away, not seconds away.
+    assert "moment" not in message.lower()
+    assert "shortly" not in message.lower()
+    for term in TECHNICAL_TERMS:
+        assert term not in message
