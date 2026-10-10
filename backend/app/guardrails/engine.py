@@ -16,6 +16,15 @@ def evaluate(policy: Policy, ctx: ProposalContext) -> dict:
     remaining_daily = round(policy.daily_limit - ctx.daily_spent, 2)
     remaining_monthly = round(policy.monthly_limit - ctx.monthly_spent, 2)
 
+    # A blocked_categories entry that isn't one of the agent's fixed
+    # classification categories (e.g. "gambling", "crypto" - see
+    # _free_text_blocked_terms's docstring) can never be caught by
+    # category_blocked(), which only ever compares against the exact
+    # category the purchasing agent chose from its fixed enum. Computed
+    # once up front so both the "checks" summary and the actual decision
+    # below agree with each other.
+    blocked_term = rules.blocked_term_match(policy, ctx)
+
     base = {
         "requested_amount": round(ctx.amount, 2),
         "authorized_amount": 0,
@@ -23,7 +32,8 @@ def evaluate(policy: Policy, ctx: ProposalContext) -> dict:
         "remaining_monthly_budget": remaining_monthly,
         "checks": {
             "category_allowed": not rules.category_blocked(policy, ctx.category)
-            and not rules.category_not_allowed(policy, ctx.category),
+            and not rules.category_not_allowed(policy, ctx.category)
+            and blocked_term is None,
             "under_max_transaction": not rules.exceeds_max_transaction(policy, ctx),
             "daily_budget_available": not rules.exceeds_daily_limit(policy, ctx),
             "monthly_budget_available": not rules.exceeds_monthly_limit(policy, ctx),
@@ -36,6 +46,17 @@ def evaluate(policy: Policy, ctx: ProposalContext) -> dict:
             **base,
             "decision": rules.DECISION_BLOCK,
             "reason": f"Category '{ctx.category}' is explicitly blocked by policy.",
+        }
+
+    if blocked_term is not None:
+        return {
+            **base,
+            "decision": rules.DECISION_BLOCK,
+            "reason": (
+                f"This proposal matches the policy's blocked term '{blocked_term}' "
+                f"(found in the merchant, product, or stated reason), even though it "
+                f"was classified as category '{ctx.category}'."
+            ),
         }
 
     if rules.category_not_allowed(policy, ctx.category):

@@ -21,7 +21,10 @@ def policy_from_row(row: dict) -> Policy:
     )
 
 
-def build_context(agent_id: str, amount: float, category: str, policy: Policy) -> ProposalContext:
+def build_context(
+    agent_id: str, amount: float, category: str, policy: Policy,
+    merchant: str = "", product_name: str = "", reason: str = "",
+) -> ProposalContext:
     daily_spent = models.get_spent_since(agent_id, models.start_of_day_iso())
     monthly_spent = models.get_spent_since(agent_id, models.start_of_month_iso())
     window_count = models.count_transactions_since(
@@ -33,6 +36,9 @@ def build_context(agent_id: str, amount: float, category: str, policy: Policy) -
         daily_spent=daily_spent,
         monthly_spent=monthly_spent,
         transactions_in_window=window_count,
+        merchant=merchant,
+        product_name=product_name,
+        reason=reason,
     )
 
 

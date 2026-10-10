@@ -346,7 +346,12 @@ async def _continue_research(agent: dict, task: dict, tx_id: str, messages: list
     )
 
     _set_tx_state(tx_id, "PROPOSED", "POLICY_CHECK")
-    decision = _evaluate_policy_atomic(agent["id"], tx_id, amount_usd, proposal["category"], policy_row)
+    decision = _evaluate_policy_atomic(
+        agent["id"], tx_id, amount_usd, proposal["category"], policy_row,
+        merchant=proposal.get("merchant") or "",
+        product_name=proposal.get("product_name") or "",
+        reason=proposal.get("reason") or "",
+    )
 
     models.update_transaction(
         tx_id,
@@ -841,12 +846,23 @@ async def _normalize_to_usd(amount: float, currency: str) -> float:
 
 
 def _evaluate_policy_atomic(agent_id: str, tx_id: str, amount_usd: float, category: str,
-                              policy_row: dict) -> dict:
+                              policy_row: dict, merchant: str = "", product_name: str = "",
+                              reason: str = "") -> dict:
     """Evaluate + (if authorized) reserve budget atomically so concurrent
-    transactions can never jointly overspend the daily/monthly budget."""
+    transactions can never jointly overspend the daily/monthly budget.
+
+    merchant/product_name/reason are passed through so the policy engine's
+    blocked_term_match check (see rules.py) has real text to scan - a
+    blocked_categories entry that isn't one of the fixed classification
+    categories (e.g. "gambling") can only ever be enforced against what
+    the proposal actually says, never against ctx.category alone.
+    """
     policy = policy_from_row(policy_row)
     with immediate_transaction():
-        ctx = build_context(agent_id, amount_usd, category, policy)
+        ctx = build_context(
+            agent_id, amount_usd, category, policy,
+            merchant=merchant, product_name=product_name, reason=reason,
+        )
         decision = policy_engine.evaluate(policy, ctx)
         if decision["decision"] in ("ALLOW", "APPROVAL_REQUIRED"):
             models.reserve_budget(agent_id, tx_id, decision["authorized_amount"])
