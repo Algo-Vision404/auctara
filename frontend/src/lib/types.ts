@@ -145,7 +145,27 @@ export interface PolicyDraft {
   price_variance_tolerance: number;
   blocked_categories: string[];
   allowed_categories: string[];
+  // Plain-language things the drafting AI had to decide for itself rather
+  // than being told directly (e.g. "Assumed a $100 per-transaction limit
+  // since none was stated") - shown to the user before they activate
+  // anything, so a guess is never silently indistinguishable from
+  // something they actually said. Optional only so older cached drafts
+  // (or a backend rollback) don't break this type.
+  assumptions?: string[];
 }
+
+// A single turn in a policy-drafting conversation, exactly as round-tripped
+// to/from POST /agents/draft-policy - there is no server-side session for
+// this (no agent record exists yet at draft time), so the frontend owns
+// and resends the growing transcript itself.
+export interface DraftConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export type DraftPolicyResponse =
+  | { status: "ready"; draft: PolicyDraft }
+  | { status: "needs_clarification"; question: string; conversation: DraftConversationMessage[] };
 
 export type Recurrence = "ONCE" | "DAILY" | "WEEKLY" | "MONTHLY";
 export type ScheduleStatus = "ACTIVE" | "PAUSED" | "CANCELLED" | "COMPLETED";

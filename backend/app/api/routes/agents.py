@@ -9,14 +9,23 @@ from app.agent.orchestrator import (
     reactivate_agent,
     retire_agent,
 )
-from app.agent.policy_drafting import PolicyDraftError, draft_policy_from_text
+from app.agent.policy_drafting import PolicyDraftError, PolicyNeedsClarification, draft_policy_step
 from app.database import models
 
 router = APIRouter()
 
 
 class DraftPolicyRequest(BaseModel):
-    instructions: str = Field(min_length=5)
+    # The very first call in a drafting conversation sends only
+    # `instructions`. Continuing after a clarifying question sends back the
+    # exact `conversation` the previous response returned, plus the
+    # human's `answer` to append to it - there is no server-side session
+    # for this (no agent record exists yet to hang one off), so the full
+    # transcript round-trips through the client each time, the same
+    # ownership split the main research loop uses for its own `messages`.
+    instructions: str | None = Field(default=None, min_length=5)
+    conversation: list[dict[str, str]] | None = None
+    answer: str | None = None
 
 
 class VelocityPayload(BaseModel):
@@ -49,11 +58,27 @@ class CreateAgentRequest(BaseModel):
 
 @router.post("/agents/draft-policy")
 async def draft_policy(req: DraftPolicyRequest):
+    if req.conversation:
+        conversation = list(req.conversation)
+        if req.answer:
+            conversation.append({"role": "user", "content": req.answer})
+    elif req.instructions:
+        conversation = [{"role": "user", "content": req.instructions}]
+    else:
+        raise HTTPException(status_code=400, detail="instructions or conversation is required")
+
     try:
-        draft = await draft_policy_from_text(req.instructions)
+        draft = await draft_policy_step(conversation)
+    except PolicyNeedsClarification as clarification:
+        return {
+            "status": "needs_clarification",
+            "question": clarification.question,
+            "conversation": clarification.conversation,
+        }
     except PolicyDraftError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
-    return draft
+    return {"status": "ready", "draft": draft}
+
 
 
 @router.post("/agents")

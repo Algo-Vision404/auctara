@@ -5,8 +5,19 @@ import { useRouter } from "next/navigation";
 import { TopBar } from "@/components/nav/TopBar";
 import { Button } from "@/components/ui/Button";
 import { api, ApiError } from "@/lib/api";
-import { PolicyDraft } from "@/lib/types";
-import { Sparkles, ShieldCheck, Ban, ArrowRight, Loader2, CircleCheck, TriangleAlert } from "lucide-react";
+import { DraftConversationMessage, PolicyDraft } from "@/lib/types";
+import {
+  Sparkles,
+  ShieldCheck,
+  Ban,
+  ArrowRight,
+  Loader2,
+  CircleCheck,
+  TriangleAlert,
+  MessageCircleQuestion,
+  Send,
+  Lightbulb,
+} from "lucide-react";
 
 const EXAMPLE =
   "Manage our SaaS subscriptions.\n\nYou can spend up to $100 without asking me.\n\nAnything above that needs approval.\n\nNever buy gambling or crypto products.\n\nMonthly budget is $2,000.";
@@ -19,17 +30,65 @@ export default function NewAgentPage() {
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // When the drafting AI can't responsibly guess something that would
+  // materially change the budget, scope, or an exclusion, it pauses with a
+  // question instead of a confident guess - the same NEEDS_INPUT pattern
+  // already used mid-task, just one step earlier in the lifecycle. There is
+  // no server-side session for this (no agent record exists yet), so this
+  // page owns and resends the growing conversation itself.
+  const [conversation, setConversation] = useState<DraftConversationMessage[] | null>(null);
+  const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
+  const [answeredSoFar, setAnsweredSoFar] = useState<{ question: string; answer: string }[]>([]);
+  const [answerText, setAnswerText] = useState("");
+  const [answering, setAnswering] = useState(false);
+
+  function resetConversation() {
+    setConversation(null);
+    setPendingQuestion(null);
+    setAnsweredSoFar([]);
+    setAnswerText("");
+  }
+
   async function handleDraft() {
     setError(null);
     setDrafting(true);
     setDraft(null);
+    resetConversation();
     try {
-      const d = await api.draftPolicy(instructions);
-      setDraft(d);
+      const res = await api.draftPolicy({ instructions });
+      if (res.status === "needs_clarification") {
+        setConversation(res.conversation);
+        setPendingQuestion(res.question);
+      } else {
+        setDraft(res.draft);
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to draft policy");
     } finally {
       setDrafting(false);
+    }
+  }
+
+  async function handleAnswerQuestion() {
+    const trimmed = answerText.trim();
+    if (!trimmed || !conversation || !pendingQuestion) return;
+    setError(null);
+    setAnswering(true);
+    try {
+      const res = await api.draftPolicy({ conversation, answer: trimmed });
+      setAnsweredSoFar((prev) => [...prev, { question: pendingQuestion, answer: trimmed }]);
+      setAnswerText("");
+      if (res.status === "needs_clarification") {
+        setConversation(res.conversation);
+        setPendingQuestion(res.question);
+      } else {
+        setPendingQuestion(null);
+        setDraft(res.draft);
+      }
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to send that answer");
+    } finally {
+      setAnswering(false);
     }
   }
 
@@ -79,16 +138,22 @@ export default function NewAgentPage() {
     <div className="flex flex-1 flex-col">
       <TopBar title="Create an Agent" subtitle="Natural language → explicit financial authority." backHref="/agents" />
       <main className="mx-auto w-full max-w-3xl flex-1 space-y-6 px-5 py-6 md:px-8">
-        <div className="card-surface space-y-4 p-6">
+        <div className={`card-surface space-y-4 p-6 ${pendingQuestion ? "opacity-60" : ""}`}>
           <label className="text-sm font-semibold">Describe what this agent should do</label>
           <textarea
             value={instructions}
             onChange={(e) => setInstructions(e.target.value)}
             rows={7}
-            className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-4 font-mono-ui text-sm leading-relaxed text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
+            disabled={!!pendingQuestion}
+            className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-4 font-mono-ui text-sm leading-relaxed text-[var(--color-text)] outline-none focus:border-[var(--color-accent)] disabled:cursor-not-allowed"
             placeholder="Describe the agent's purpose and spending authority in plain language..."
           />
-          <Button variant="primary" onClick={handleDraft} loading={drafting} disabled={instructions.trim().length < 5}>
+          <Button
+            variant="primary"
+            onClick={handleDraft}
+            loading={drafting}
+            disabled={instructions.trim().length < 5 || !!pendingQuestion}
+          >
             <Sparkles size={16} /> {drafting ? "Drafting policy…" : "Generate Policy"}
           </Button>
           {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
@@ -101,12 +166,86 @@ export default function NewAgentPage() {
           </div>
         )}
 
+        {answeredSoFar.length > 0 && (
+          <div className="card-surface space-y-3 p-6">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              Clarified so far
+            </p>
+            {answeredSoFar.map((qa, i) => (
+              <div key={i} className="space-y-1 text-sm">
+                <p className="flex items-start gap-1.5 text-[var(--color-text-secondary)]">
+                  <MessageCircleQuestion size={14} className="mt-0.5 shrink-0" /> {qa.question}
+                </p>
+                <p className="pl-[21px] text-[var(--color-text)]">{qa.answer}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {pendingQuestion && (
+          <div className="card-elevated animate-enter overflow-hidden">
+            <div className="border-b border-[var(--color-border)] bg-[var(--color-warning-soft)] px-6 py-5">
+              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[var(--color-warning)]">
+                <MessageCircleQuestion size={14} /> Before drafting a policy, one question
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--color-text)]">{pendingQuestion}</p>
+            </div>
+            <div className="space-y-3 px-6 py-5">
+              <textarea
+                value={answerText}
+                onChange={(e) => setAnswerText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleAnswerQuestion();
+                  }
+                }}
+                rows={2}
+                disabled={answering}
+                placeholder="Your answer..."
+                className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)] disabled:opacity-60"
+              />
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  onClick={handleAnswerQuestion}
+                  loading={answering}
+                  disabled={answering || !answerText.trim()}
+                >
+                  <Send size={16} /> Send answer
+                </Button>
+              </div>
+              <p className="text-xs text-[var(--color-text-muted)]">
+                This changes the budget, scope, or an exclusion enough that it isn&apos;t safe to guess - your
+                answer is added to the same conversation and drafting continues from there.
+              </p>
+            </div>
+          </div>
+        )}
+
         {draft && (
           <div className="card-elevated animate-enter space-y-5 p-6">
             <div className="flex items-center gap-2 text-[var(--color-accent)]">
               <ShieldCheck size={18} />
               <h3 className="font-semibold">Review before activating</h3>
             </div>
+
+            {!!draft.assumptions?.length && (
+              <div className="rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning-soft)] p-4">
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--color-warning)]">
+                  <Lightbulb size={13} /> Assumptions made while drafting
+                </p>
+                <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--color-text)]">
+                  {draft.assumptions.map((a, i) => (
+                    <li key={i}>{a}</li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
+                  These weren&apos;t stated in your instructions - check them below and adjust anything that
+                  isn&apos;t right before activating.
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Agent name">

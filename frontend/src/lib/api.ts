@@ -1,6 +1,8 @@
 import type {
   Agent,
   DashboardSummary,
+  DraftConversationMessage,
+  DraftPolicyResponse,
   Policy,
   PolicyDraft,
   Task,
@@ -71,10 +73,17 @@ export const api = {
 
   listAgents: () => request<Agent[]>("/agents"),
   getAgent: (id: string) => request<Agent>(`/agents/${id}`),
-  draftPolicy: (instructions: string) =>
-    request<PolicyDraft>("/agents/draft-policy", {
+  // Two ways to call this: starting a fresh drafting conversation
+  // ({ instructions }), or continuing one after the AI asked a clarifying
+  // question ({ conversation, answer }), where `conversation` is exactly
+  // what the previous response returned. Either can come back "ready"
+  // (a finished draft) or "needs_clarification" (one more question) -
+  // there is no separate endpoint for the two, since it is genuinely the
+  // same conversation, just possibly several turns long.
+  draftPolicy: (payload: { instructions: string } | { conversation: DraftConversationMessage[]; answer: string }) =>
+    request<DraftPolicyResponse>("/agents/draft-policy", {
       method: "POST",
-      body: JSON.stringify({ instructions }),
+      body: JSON.stringify(payload),
     }),
   createAgent: (payload: { name: string; purpose: string; directive: string; policy: Omit<PolicyDraft, "agent_name" | "agent_purpose"> }) =>
     request<Agent>("/agents", { method: "POST", body: JSON.stringify(payload) }),
