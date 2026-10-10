@@ -12,6 +12,17 @@ The fix cross-checks any claimed channel3_product_id against every id this
 task's own channel3_search_products calls have actually returned, scanned
 from the conversation's own tool-result messages (not a function-local
 variable, which would not survive a NEEDS_INPUT pause/resume).
+
+A second, narrower gap in the same spot: that check only looked at id
+membership. Neither search_web (returns only {title, url, snippet}) nor
+fetch_page (returns only stripped page text) ever produces an image_url or
+a retailer-domain field anywhere in this codebase, so there is no
+legitimate source for either field except Channel3 - meaning image_url/
+retailer set with NO channel3_product_id at all has no legitimate
+explanation, and a REAL channel3_product_id could still be paired with an
+image_url/retailer/source_url copied from a different candidate's record
+(or simply invented) without the id-only check ever noticing. Both are
+covered below.
 """
 from __future__ import annotations
 
@@ -138,6 +149,138 @@ def test_fabricated_channel3_product_id_is_rejected(monkeypatch):
         # The honest retry (no channel3_product_id) is what actually went through.
         assert tx["reason"] == "Found via web search"
         assert tx["channel3_product_id"] is None
+
+
+def test_image_url_without_channel3_product_id_is_rejected(monkeypatch):
+    """No tool other than channel3_search_products ever returns an image
+    URL or a retailer domain, so either field attached without a matching,
+    real channel3_product_id has no legitimate source at all - it can only
+    have been invented. ProposalSummary.tsx renders tx.image_url as a real
+    <img> with no badge gating it, unlike channel3_product_id's "Verified
+    live listing" badge, so this would otherwise show a fabricated product
+    photo with nothing marking it as unverified."""
+    with TestClient(app) as client:
+        agent = client.post("/agents", json={
+            "name": "Office Supplies Agent",
+            "purpose": "Buy office hardware",
+            "directive": "Buy office hardware as needed, up to $150 autonomously.",
+            "policy": {
+                "max_transaction_amount": 150, "approval_threshold": 150,
+                "daily_limit": 300, "monthly_limit": 2000,
+            },
+        }).json()
+
+        fabricated_image = FakeMessage(tool_calls=[FakeToolCall(
+            "call_1", "create_purchase_proposal",
+            {
+                "merchant": "example.com", "amount": 59.99, "currency": "USD",
+                "category": "hardware", "reason": "Found via web search",
+                "source_url": "https://example.com/mic",
+                "image_url": "https://example.com/invented-product-photo.jpg",
+            },
+        )])
+        honest_retry = FakeMessage(tool_calls=[FakeToolCall(
+            "call_2", "create_purchase_proposal",
+            {
+                "merchant": "example.com", "amount": 59.99, "currency": "USD",
+                "category": "hardware", "reason": "Found via web search",
+                "source_url": "https://example.com/mic",
+            },
+        )])
+        monkeypatch.setattr(
+            orchestrator, "_openrouter_client",
+            _fake_client_sequence([fabricated_image, honest_retry]),
+        )
+
+        task = client.post(
+            "/tasks", json={"agent_id": agent["id"], "prompt": "Buy a USB microphone"}
+        ).json()
+        task = _run_task_until_terminal(client, task["id"])
+
+        tx = task["transactions"][0]
+        assert tx["reason"] == "Found via web search"
+        assert tx["image_url"] is None
+
+
+def test_channel3_fields_mismatched_with_the_claimed_product_are_rejected(monkeypatch):
+    """A real channel3_product_id (one the task's own search actually
+    returned) paired with an image_url/retailer/source_url lifted from a
+    DIFFERENT candidate in the same result set must be rejected - the id
+    being genuine is not enough, every Channel3-sourced field must belong
+    to that exact product record."""
+    async def fake_search_products(query, max_price=None):
+        return [
+            {
+                "channel3_product_id": "cheap-1", "title": "Basic USB Microphone", "brand": "Acme",
+                "category": "Microphones", "key_features": [], "image_url": "https://x/cheap.jpg",
+                "price": 29.99, "compare_at_price": None, "currency": "USD",
+                "availability": "InStock", "retailer": "cheapmart.com",
+                "buy_url": "https://cheapmart.com/mic", "offer_count": 1,
+            },
+            {
+                "channel3_product_id": "nice-2", "title": "Premium USB Microphone", "brand": "Blue",
+                "category": "Microphones", "key_features": [], "image_url": "https://x/nice.jpg",
+                "price": 89.99, "compare_at_price": None, "currency": "USD",
+                "availability": "InStock", "retailer": "example.com",
+                "buy_url": "https://example.com/nice-mic", "offer_count": 1,
+            },
+        ]
+
+    monkeypatch.setattr(orchestrator, "search_products", fake_search_products)
+
+    with TestClient(app) as client:
+        agent = client.post("/agents", json={
+            "name": "Office Supplies Agent",
+            "purpose": "Buy office hardware",
+            "directive": "Buy office hardware as needed, up to $150 autonomously.",
+            "policy": {
+                "max_transaction_amount": 150, "approval_threshold": 150,
+                "daily_limit": 300, "monthly_limit": 2000,
+            },
+        }).json()
+
+        search_call = FakeMessage(tool_calls=[FakeToolCall(
+            "call_1", "channel3_search_products", {"query": "USB podcast microphone"},
+        )])
+        # Real id ("cheap-1"), but the photo/retailer/link of the OTHER,
+        # nicer-looking candidate - the exact mismatch the id-only check
+        # could never catch.
+        mismatched_proposal = FakeMessage(tool_calls=[FakeToolCall(
+            "call_2", "create_purchase_proposal",
+            {
+                "merchant": "cheapmart.com", "amount": 29.99, "currency": "USD",
+                "category": "hardware", "reason": "Cheapest in-stock option",
+                "source_url": "https://example.com/nice-mic",
+                "channel3_product_id": "cheap-1",
+                "image_url": "https://x/nice.jpg", "retailer": "example.com",
+            },
+        )])
+        honest_retry = FakeMessage(tool_calls=[FakeToolCall(
+            "call_3", "create_purchase_proposal",
+            {
+                "merchant": "cheapmart.com", "amount": 29.99, "currency": "USD",
+                "category": "hardware", "reason": "Cheapest in-stock option",
+                "source_url": "https://cheapmart.com/mic",
+                "channel3_product_id": "cheap-1",
+                "image_url": "https://x/cheap.jpg", "retailer": "cheapmart.com",
+            },
+        )])
+        monkeypatch.setattr(
+            orchestrator, "_openrouter_client",
+            _fake_client_sequence([search_call, mismatched_proposal, honest_retry]),
+        )
+
+        task = client.post(
+            "/tasks", json={"agent_id": agent["id"], "prompt": "Buy a USB podcast microphone"}
+        ).json()
+        task = _run_task_until_terminal(client, task["id"])
+
+        tx = task["transactions"][0]
+        # The honest, internally-consistent retry is what actually went through.
+        assert tx["channel3_product_id"] == "cheap-1"
+        assert tx["image_url"] == "https://x/cheap.jpg"
+        assert tx["retailer"] == "cheapmart.com"
+        assert tx["source_url"] == "https://cheapmart.com/mic"
 
 
 def test_genuine_channel3_product_id_is_accepted(monkeypatch):

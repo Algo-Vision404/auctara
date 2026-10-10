@@ -449,24 +449,26 @@ async def _sanitize_human_message(client: AsyncOpenAI, settings, raw: str) -> st
     return raw
 
 
-def _channel3_product_ids_seen(messages: list[dict]) -> set[str]:
-    """Every channel3_product_id this task's own channel3_search_products
-    calls have actually returned so far, scanned straight from the
-    conversation's own tool-result messages - the one source of continuity
-    that survives a NEEDS_INPUT pause/resume (a function-local set would
-    not, since _run_research_loop starts a fresh call, and therefore fresh
-    locals, every time it resumes; `messages` is the only thing the
-    orchestrator actually persists and reloads).
+def _channel3_products_seen(messages: list[dict]) -> dict[str, dict]:
+    """Every real product record this task's own channel3_search_products
+    calls have actually returned so far - keyed by channel3_product_id,
+    full normalized record (image_url, retailer, buy_url, ...) as the
+    value - scanned straight from the conversation's own tool-result
+    messages, the one source of continuity that survives a NEEDS_INPUT
+    pause/resume (a function-local dict would not, since
+    _run_research_loop starts a fresh call, and therefore fresh locals,
+    every time it resumes; `messages` is the only thing the orchestrator
+    actually persists and reloads).
 
-    Used to catch a model attaching a channel3_product_id (and the
-    image_url/retailer that are only ever meant to travel alongside a real
-    one) to a proposal that does not correspond to anything it actually
-    searched for. Without this, the "Verified live listing" badge the
-    transaction page shows off tx.channel3_product_id could be a lie: the
-    model could fabricate an id, or carry one over from an unrelated
-    rejected candidate, and nothing would ever catch it.
+    Used to catch two different ways a proposal's Channel3 fields could be
+    a lie: (1) a channel3_product_id that does not correspond to anything
+    actually searched for, and (2) a channel3_product_id that IS real, but
+    paired with an image_url/retailer/source_url that does not actually
+    belong to that specific product record - e.g. carried over from a
+    different, nicer-looking candidate, or simply invented. Either one
+    would sail straight past a check that only looks at id membership.
     """
-    ids: set[str] = set()
+    products: dict[str, dict] = {}
     for m in messages:
         if m.get("role") != "tool":
             continue
@@ -477,8 +479,14 @@ def _channel3_product_ids_seen(messages: list[dict]) -> set[str]:
         for p in payload.get("products") or []:
             pid = p.get("channel3_product_id")
             if pid:
-                ids.add(pid)
-    return ids
+                products[pid] = p
+    return products
+
+
+def _channel3_product_ids_seen(messages: list[dict]) -> set[str]:
+    """Thin convenience wrapper over _channel3_products_seen for callers
+    that only need to know which ids are real, not their full record."""
+    return set(_channel3_products_seen(messages).keys())
 
 
 async def _run_research_loop(agent: dict, task: dict, tx_id: str, messages: list[dict]) -> dict:
@@ -715,18 +723,23 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str, messages: list
                     continue
                 args["amount"] = amount_value
 
-                # The schema's own description for these three fields is
+                # The schema's own description for these fields is
                 # explicit: they only ever belong on a proposal "if this
                 # candidate came from channel3_search_products" - never
                 # trust that claim blindly, since the UI shows a "Verified
                 # live listing" badge directly off channel3_product_id
                 # being present (see ProposalSummary.tsx). Cross-check
-                # against every id this task's own channel3_search_products
-                # calls have actually returned (not a fresh variable each
-                # loop iteration - see _channel3_product_ids_seen - so this
-                # still works correctly across a NEEDS_INPUT pause/resume).
+                # against every real product this task's own
+                # channel3_search_products calls have actually returned
+                # (not a fresh variable each loop iteration - see
+                # _channel3_products_seen - so this still works correctly
+                # across a NEEDS_INPUT pause/resume).
                 claimed_id = _clean_optional_str(args.get("channel3_product_id"))
-                if claimed_id and claimed_id not in _channel3_product_ids_seen(messages):
+                claimed_image = _clean_optional_str(args.get("image_url"))
+                claimed_retailer = _clean_optional_str(args.get("retailer"))
+                real_products = _channel3_products_seen(messages)
+
+                if claimed_id and claimed_id not in real_products:
                     messages.append({
                         "role": "tool", "tool_call_id": call.id,
                         "content": json.dumps({
@@ -740,6 +753,69 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str, messages: list
                         }),
                     })
                     continue
+
+                # image_url and retailer are NEVER produced by any tool
+                # other than channel3_search_products - search_web only
+                # returns {title, url, snippet} and fetch_page only returns
+                # stripped page text, neither carries an image or a
+                # retailer-domain field. So either field present without a
+                # verified channel3_product_id has no legitimate source at
+                # all - it can only be invented. Reject it the same way,
+                # rather than letting it render a fabricated product photo
+                # (ProposalSummary.tsx shows tx.image_url as a real <img>
+                # unconditionally, with no badge gating it the way
+                # channel3_product_id gates "Verified live listing").
+                if (claimed_image or claimed_retailer) and not claimed_id:
+                    messages.append({
+                        "role": "tool", "tool_call_id": call.id,
+                        "content": json.dumps({
+                            "error": (
+                                "image_url/retailer can only be set together with the real "
+                                "channel3_product_id they came from - no other tool in this "
+                                "agent ever returns a product image or retailer domain, so "
+                                "either field without a matching channel3_product_id can only "
+                                "be invented. Omit both for anything found via search_web/"
+                                "fetch_page, or include the real channel3_product_id if this "
+                                "candidate really did come from channel3_search_products."
+                            )
+                        }),
+                    })
+                    continue
+
+                # The id itself being real is not enough on its own: a
+                # model could still pair a genuine channel3_product_id with
+                # an image_url/retailer/source_url lifted from a different
+                # candidate (e.g. a cheaper item's id next to a nicer
+                # item's photo), or a listing link that quietly points
+                # somewhere else entirely - the one URL the "View listing"
+                # button actually sends a human to. Require every
+                # Channel3-sourced field to match that exact product's own
+                # recorded value, not just any value that happens to be
+                # present somewhere in this task's research.
+                if claimed_id:
+                    real_product = real_products[claimed_id]
+                    claimed_source = _clean_optional_str(args.get("source_url"))
+                    mismatched = []
+                    if claimed_image and claimed_image != real_product.get("image_url"):
+                        mismatched.append("image_url")
+                    if claimed_retailer and claimed_retailer != real_product.get("retailer"):
+                        mismatched.append("retailer")
+                    if claimed_source and real_product.get("buy_url") and claimed_source != real_product["buy_url"]:
+                        mismatched.append("source_url")
+                    if mismatched:
+                        messages.append({
+                            "role": "tool", "tool_call_id": call.id,
+                            "content": json.dumps({
+                                "error": (
+                                    f"{', '.join(mismatched)} do not match the real Channel3 "
+                                    f"listing for channel3_product_id '{claimed_id}'. image_url "
+                                    "and retailer must be copied exactly from that search "
+                                    "result, and source_url must be its buy_url - never mixed "
+                                    "with another candidate's values or a different link."
+                                )
+                            }),
+                        })
+                        continue
                 return args
 
 
