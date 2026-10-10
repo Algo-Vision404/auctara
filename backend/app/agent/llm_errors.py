@@ -15,12 +15,70 @@ actually lost, only kept off the surface a user sees.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
+from typing import Awaitable, Callable, TypeVar
 
-from openai import APIStatusError
+from openai import APIConnectionError, APIStatusError, APITimeoutError
 
 logger = logging.getLogger("agentauth.llm_errors")
+
+T = TypeVar("T")
+
+# Status codes worth a short automatic retry: 429 (rate limited) and any 5xx
+# (the upstream provider itself having a momentary bad day). Everything else
+# - 401 bad credentials, 402 out of credit, 400 bad request, etc. - will
+# fail exactly the same way no matter how many times it's retried, so those
+# are raised immediately instead of wasting time (and the user's patience)
+# retrying something that can't succeed.
+_TRANSIENT_STATUS_CODES = {429}
+
+
+def is_transient_llm_error(exc: Exception) -> bool:
+    """True for the class of error the user-facing messages already
+    describe as temporary ("try again in a moment"/"try again shortly") -
+    rate limiting, a 5xx from the upstream AI provider, or a dropped/timed
+    out connection - as opposed to an error that will never succeed no
+    matter how many times it's retried."""
+    if isinstance(exc, APIStatusError):
+        status = exc.status_code or 0
+        return status in _TRANSIENT_STATUS_CODES or status >= 500
+    return isinstance(exc, (APIConnectionError, APITimeoutError))
+
+
+async def call_llm_with_retry(
+    make_call: Callable[[], Awaitable[T]],
+    *,
+    max_attempts: int = 3,
+    base_delay_seconds: float = 1.0,
+) -> T:
+    """Run one LLM request (`make_call`, an async no-arg callable), retrying
+    with a short exponential backoff when the failure looks transient. The
+    rate-limited/unavailable messages below already tell the user the
+    problem is momentary and to try again - this makes that actually true
+    for a few seconds before giving up and surfacing it, instead of failing
+    the whole task on the very first hiccup. Non-transient errors (bad
+    credentials, no credit, a bad request) are raised immediately on the
+    first attempt since retrying them can never help.
+    """
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return await make_call()
+        except Exception as exc:  # noqa: BLE001
+            if attempt >= max_attempts or not is_transient_llm_error(exc):
+                raise
+            delay = base_delay_seconds * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
+            logger.warning(
+                "Transient LLM error on attempt %s/%s, retrying in %.1fs: %r",
+                attempt,
+                max_attempts,
+                delay,
+                exc,
+            )
+            await asyncio.sleep(delay)
 
 NOT_CONFIGURED_MESSAGES = [
     "Hmm, nobody's ever actually plugged me in. I don't have a working brain hooked up yet - an "

@@ -14,7 +14,7 @@ import { DecisionTimeline } from "@/components/transactions/DecisionTimeline";
 import { Terminal } from "@/components/terminal/Terminal";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, subscribeToEvents } from "@/lib/api";
 import { Transaction, Agent } from "@/lib/types";
 import { money, titleCase, fullDateTime } from "@/lib/format";
 import { buildTimelineStages } from "@/lib/timelineStages";
@@ -71,6 +71,24 @@ export default function TransactionDetailPage() {
     }, 2000);
     return () => clearInterval(i);
   }, [load]);
+
+  // The 2-second poll above is a fallback, not the real mechanism - most of
+  // a transaction's life (proposal -> policy -> PayPal -> audit) runs as
+  // one uninterrupted, synchronous backend sequence that can finish in well
+  // under 2 seconds once research is done. A fixed poll interval can only
+  // ever catch "nothing happened yet" and then "everything is already
+  // done" for a run that fast, which is exactly why the stage-by-stage
+  // timeline above used to appear to jump straight from empty to fully
+  // resolved - the Terminal log below was already live (it listens to this
+  // same event stream directly), the staged timeline just wasn't. Refetching
+  // immediately on every real backend event, the instant it happens, makes
+  // the stage timeline advance in lockstep with the Terminal log instead of
+  // lagging behind it on its own slower clock.
+  useEffect(() => {
+    if (!tx?.task_id) return;
+    const unsub = subscribeToEvents(`/tasks/${tx.task_id}/events`, () => load());
+    return unsub;
+  }, [tx?.task_id, load]);
 
   useEffect(() => {
     if (search.get("paypal") === "return" && !continuedRef.current) {

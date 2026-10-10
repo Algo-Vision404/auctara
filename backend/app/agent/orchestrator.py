@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 from openai import AsyncOpenAI
 
-from app.agent.llm_errors import NOT_CONFIGURED_MESSAGE, humanize_llm_error
+from app.agent.llm_errors import NOT_CONFIGURED_MESSAGE, call_llm_with_retry, humanize_llm_error
 from app.agent.prompts import SYSTEM_PROMPT, build_task_prompt
 from app.agent.tools import build_terminal_tool_schemas, build_tool_schemas
 from app.audit.integrity import record_audit
@@ -567,7 +567,7 @@ async def _run_research_loop(
                 ),
             })
         try:
-            response = await client.chat.completions.create(
+            response = await call_llm_with_retry(lambda: client.chat.completions.create(
                 model=settings.openrouter_model,
                 messages=messages,
                 tools=terminal_tool_schemas if is_final_call else tool_schemas,
@@ -583,7 +583,7 @@ async def _run_research_loop(
                 # clean message, so turn it off everywhere; models that don't
                 # support the parameter simply ignore it.
                 extra_body={"reasoning": {"enabled": False}},
-            )
+            ))
         except Exception as exc:  # noqa: BLE001
             logger.exception("OpenRouter chat.completions.create failed")
             raise AgentError(humanize_llm_error(exc)) from exc

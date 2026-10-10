@@ -30,7 +30,7 @@ import logging
 
 from openai import AsyncOpenAI
 
-from app.agent.llm_errors import NOT_CONFIGURED_MESSAGE, humanize_llm_error
+from app.agent.llm_errors import NOT_CONFIGURED_MESSAGE, call_llm_with_retry, humanize_llm_error
 from app.config import get_settings
 
 logger = logging.getLogger("agentauth.policy_drafting")
@@ -254,7 +254,7 @@ async def draft_policy_step(conversation: list[dict]) -> dict:
         })
 
     try:
-        response = await client.chat.completions.create(
+        response = await call_llm_with_retry(lambda: client.chat.completions.create(
             model=settings.openrouter_model,
             messages=messages,
             temperature=0.1,
@@ -274,7 +274,7 @@ async def draft_policy_step(conversation: list[dict]) -> dict:
             # before it ever emits the actual JSON object. This call only
             # ever needs a small structured result, never visible reasoning.
             extra_body={"reasoning": {"enabled": False}},
-        )
+        ))
     except Exception as exc:  # noqa: BLE001
         logger.exception("AI policy drafting request failed")
         raise PolicyDraftError(humanize_llm_error(exc)) from exc
