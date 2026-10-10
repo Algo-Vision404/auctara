@@ -18,9 +18,12 @@ TOOL_SCHEMAS = [
                 "retailers) for structured purchase candidates. Returns live price, "
                 "retailer domain, availability, and a buy URL directly, with no page "
                 "scraping needed. PREFER this over search_web/fetch_page whenever the "
-                "task is to buy a physical or commercially-listed product. Only fall "
-                "back to search_web if this returns no relevant candidates (e.g. a "
-                "software subscription or service Channel3 doesn't carry)."
+                "task is to buy a PHYSICAL, shippable retail product. Channel3 only ever "
+                "carries real inventory from real online retailers - it has NEVER carried "
+                "software, SaaS, subscriptions, licenses, cloud/API plans, or any other "
+                "purely digital good, and never will. For any of those, skip this tool "
+                "entirely and use search_web/fetch_page from the start; calling this for a "
+                "digital purchase will be rejected and only wastes a turn."
             ),
             "parameters": {
                 "type": "object",

@@ -166,6 +166,38 @@ def _is_blank_or_nullish(value: Any) -> bool:
     return False
 
 
+# Channel3's entire catalog is real, physical retail inventory: every
+# candidate it returns comes from an actual online retailer's stock, with a
+# real price and buy_url (see app/search/channel3.py's own docstring). It
+# has never carried software licenses, SaaS subscriptions, or any other
+# purely digital good - there is no query tuning that fixes that, because
+# the product category simply does not exist in its index. Searching it for
+# one doesn't return a worse result than search_web; it can only ever
+# return retail products that happen to share a word with the query. The
+# tool description already tells the model to prefer search_web for this
+# case, but relying on it noticing "these are all T-shirts" after the fact
+# is unreliable and wastes a real API call every time it doesn't - a real
+# run of exactly this (a "SaaS Subscription Manager" agent asked to renew
+# "team management software") burned three separate Channel3 calls on a
+# page of Marvel/Star Wars/Boston Red Sox t-shirts (the catalog's semantic
+# match latched onto "team") before the model finally gave up and used
+# search_web, and those irrelevant candidates stayed in this task's audit
+# trail and research panel even though none of them were ever a real
+# candidate. Short-circuiting here, before the real API call, is strictly
+# more reliable than hoping the model self-corrects, and keeps a task's
+# research record limited to sources that could actually have been used.
+_NON_PHYSICAL_SIGNAL_WORDS = (
+    "software", "saas", "subscription", "license", "licence", "api",
+    "cloud", "hosting", "platform as a service", "paas", "app",
+    "application", "dashboard", "plan", "seat", "seats", "tier",
+)
+
+
+def _looks_like_non_physical_query(query: str) -> bool:
+    q = query.lower()
+    return any(word in q for word in _NON_PHYSICAL_SIGNAL_WORDS)
+
+
 def _openrouter_client() -> AsyncOpenAI:
     settings = get_settings()
     if not settings.openrouter_api_key:
@@ -510,6 +542,22 @@ async def _run_research_loop(agent: dict, task: dict, tx_id: str, messages: list
             if name == "channel3_search_products":
                 query = args.get("query", "")
                 max_price = args.get("max_price")
+                if _looks_like_non_physical_query(query):
+                    await emit("CHANNEL3_SEARCH_SKIPPED",
+                                f"Skipped the product catalog for \"{query}\": it only carries physical "
+                                "retail goods, never software or digital subscriptions.",
+                                task_id=task["id"], agent_id=agent["id"], transaction_id=tx_id,
+                                payload={"query": query})
+                    messages.append({
+                        "role": "tool", "tool_call_id": call.id,
+                        "content": json.dumps({
+                            "error": "Channel3's catalog only carries physical retail products from "
+                                     "real online retailers - it has never carried software, SaaS, or "
+                                     "any other digital subscription. Use search_web and fetch_page "
+                                     "instead for this purchase.",
+                        }),
+                    })
+                    continue
                 await emit("CHANNEL3_SEARCH_STARTED",
                             f"Searching the product catalog for \"{query}\"...",
                             task_id=task["id"], agent_id=agent["id"], transaction_id=tx_id,

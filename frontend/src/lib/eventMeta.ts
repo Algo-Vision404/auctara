@@ -35,6 +35,14 @@ const META: Record<string, EventMeta> = {
   CHANNEL3_SEARCH_STARTED: { icon: PackageSearch, tone: "info", label: "Product search" },
   CHANNEL3_SEARCH_COMPLETED: { icon: PackageSearch, tone: "accent", label: "Product results" },
   CHANNEL3_SEARCH_FAILED: { icon: TriangleAlert, tone: "danger", label: "Product search failed" },
+  // The agent asked to search the physical-retail product catalog for
+  // something that is obviously software/SaaS/a digital subscription -
+  // Channel3 has never carried any of those, so the call is rejected
+  // before it ever reaches the real API, rather than letting it come back
+  // with a page of irrelevant retail junk. Its own icon/tone distinguishes
+  // "we didn't bother" from an actual CHANNEL3_SEARCH_FAILED (a real API
+  // error), which is a different, unexpected condition worth its own color.
+  CHANNEL3_SEARCH_SKIPPED: { icon: PackageSearch, tone: "muted", label: "Product search skipped" },
   SEARCH_STARTED: { icon: Search, tone: "info", label: "Search started" },
   SEARCH_COMPLETED: { icon: Search, tone: "accent", label: "Search completed" },
   SEARCH_FAILED: { icon: TriangleAlert, tone: "danger", label: "Search failed" },

@@ -1,6 +1,6 @@
 import { Transaction } from "@/lib/types";
 import { money } from "@/lib/format";
-import { PackageSearch, CheckCircle2 } from "lucide-react";
+import { PackageSearch, CheckCircle2, Ban } from "lucide-react";
 
 // Channel3's real-time catalog search (channel3.py / CHANNEL3_SEARCH_COMPLETED)
 // already returns a rich, structured list of candidate products - title,
@@ -41,6 +41,20 @@ export function Channel3Candidates({ tx }: { tx: Transaction }) {
   const products = (latest?.payload?.products as Channel3Product[] | undefined) || [];
   const query = latest?.payload?.query as string | undefined;
 
+  // Channel3 only indexes physical retail inventory (see the backend's own
+  // comment next to _looks_like_non_physical_query in orchestrator.py), so
+  // a task for software/SaaS/a digital subscription can come back with
+  // candidates that are real, live retail listings and still have nothing
+  // to do with what was actually bought - e.g. a "team management
+  // software" search returning Marvel/Star Wars/Boston Red Sox t-shirts,
+  // because the semantic match latched onto the word "team". The agent
+  // correctly ignores junk like that and falls back to search_web, but
+  // tx.channel3_product_id staying empty is the one reliable signal that
+  // none of these candidates were actually used for this purchase - this
+  // panel has to say so plainly instead of implying they were part of how
+  // the final pick got made.
+  const usedChannel3 = Boolean(tx.channel3_product_id);
+
   return (
     <div className="card-surface space-y-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -50,10 +64,23 @@ export function Channel3Candidates({ tx }: { tx: Transaction }) {
         {query && <span className="text-xs italic text-[var(--color-text-muted)]">&ldquo;{query}&rdquo;</span>}
       </div>
 
+      {products.length > 0 && !usedChannel3 && (
+        <div className="flex items-start gap-2 rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-3 text-xs text-[var(--color-text-secondary)]">
+          <Ban size={14} className="mt-0.5 shrink-0 text-[var(--color-text-muted)]" />
+          <span>
+            None of these were used for the final purchase. Channel3&apos;s catalog only carries
+            physical retail goods, never software or digital subscriptions, so these real listings
+            simply weren&apos;t relevant to this task &mdash; the agent correctly set them aside and
+            used general web search instead (see the proposal and Terminal log below). Shown here
+            for transparency, not as candidates that were actually considered.
+          </span>
+        </div>
+      )}
+
       {products.length > 0 ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {products.map((p, i) => {
-            const chosen = Boolean(tx.channel3_product_id) && p.channel3_product_id === tx.channel3_product_id;
+            const chosen = usedChannel3 && p.channel3_product_id === tx.channel3_product_id;
             const cardClass = `relative flex gap-3 rounded-xl border p-3 transition ${
               chosen
                 ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
@@ -118,7 +145,7 @@ export function Channel3Candidates({ tx }: { tx: Transaction }) {
         </p>
       )}
 
-      {products.length > 0 && (
+      {products.length > 0 && usedChannel3 && (
         <p className="text-xs text-[var(--color-text-muted)]">
           Live structured data straight from Channel3&apos;s product catalog — real prices, real
           retailers, real availability. {products.length} candidate{products.length === 1 ? "" : "s"}{" "}
