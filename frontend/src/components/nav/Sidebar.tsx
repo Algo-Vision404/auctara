@@ -17,6 +17,14 @@ import {
   Menu,
   X,
 } from "lucide-react";
+import { useLiveSidebarStatus } from "@/lib/useLiveSidebarStatus";
+
+// The one nav item that gets a live count badge. Chosen deliberately: a
+// transaction awaiting approval is actioned from its own page, and the
+// ledger is the only place that page is reachable from, so this is the
+// single spot in the nav where "N things need you" is both accurate and
+// actually points at where to go do something about it.
+const APPROVAL_BADGE_HREF = "/ledger";
 
 // Grouped (rather than one flat list) so the sidebar reads as a map of the
 // product's actual shape - what you watch day to day, where money and
@@ -52,13 +60,36 @@ const SETTINGS_ITEM = { href: "/settings", label: "Settings", icon: Settings2 };
 // A bordered callout, not a line of muted text floating under the nav -
 // plain small-print at the bottom of a sidebar is one of the clearest
 // "this got scaffolded, not designed" tells, since nothing about its
-// container signals it was placed on purpose.
-function Tagline() {
+// container signals it was placed on purpose. The live connection line on
+// top makes the same card earn its place on every page, not just the one
+// it happens to be the brand tagline for: you can tell the backend is
+// reachable without opening a page and waiting for its own health check
+// to fail.
+function Footer() {
+  const { backendReachable } = useLiveSidebarStatus();
   return (
-    <div className="mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2.5 text-[11px] leading-snug text-[var(--color-text-secondary)]">
-      <span className="font-semibold text-[var(--color-text)]">Let AI agents act.</span>
-      <br />
-      Keep financial authority under your control.
+    <div className="mt-4 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]">
+      <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] px-3 py-2">
+        <span
+          className={clsx(
+            "h-1.5 w-1.5 shrink-0 rounded-full",
+            backendReachable ? "bg-[var(--color-success)]" : "bg-[var(--color-danger)]"
+          )}
+        />
+        <span
+          className={clsx(
+            "text-[10px] font-semibold uppercase tracking-wide",
+            backendReachable ? "text-[var(--color-text-secondary)]" : "text-[var(--color-danger)]"
+          )}
+        >
+          {backendReachable ? "Backend connected" : "Backend unreachable"}
+        </span>
+      </div>
+      <div className="px-3 py-2.5 text-[11px] leading-snug text-[var(--color-text-secondary)]">
+        <span className="font-semibold text-[var(--color-text)]">Let AI agents act.</span>
+        <br />
+        Keep financial authority under your control.
+      </div>
     </div>
   );
 }
@@ -91,12 +122,17 @@ function NavRow({
   label,
   icon: Icon,
   active,
+  badge,
   onNavigate,
 }: {
   href: string;
   label: string;
   icon: typeof LayoutDashboard;
   active: boolean;
+  // A count of things genuinely waiting on a decision, not a decorative
+  // "new!" dot - only ever rendered when it's actually > 0, and gone the
+  // moment that stops being true.
+  badge?: number;
   onNavigate?: () => void;
 }) {
   return (
@@ -124,7 +160,19 @@ function NavRow({
         strokeWidth={active ? 2.3 : 2}
         className={active ? "" : "text-[var(--color-text-muted)] group-hover:text-[var(--color-text)]"}
       />
-      {label}
+      <span className="flex-1">{label}</span>
+      {!!badge && (
+        <span
+          className={clsx(
+            "flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums",
+            active
+              ? "bg-[var(--color-accent-ink)]/20 text-[var(--color-accent-ink)]"
+              : "bg-[var(--color-warning-soft)] text-[var(--color-warning)]"
+          )}
+        >
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
     </Link>
   );
 }
@@ -132,6 +180,7 @@ function NavRow({
 function NavSections({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  const { awaitingApproval } = useLiveSidebarStatus();
 
   return (
     <nav className="flex flex-1 flex-col overflow-y-auto scrollbar-thin">
@@ -144,7 +193,13 @@ function NavSections({ onNavigate }: { onNavigate?: () => void }) {
             </span>
           </div>
           {group.items.map((item) => (
-            <NavRow key={item.href} {...item} active={isActive(item.href)} onNavigate={onNavigate} />
+            <NavRow
+              key={item.href}
+              {...item}
+              active={isActive(item.href)}
+              badge={item.href === APPROVAL_BADGE_HREF ? awaitingApproval : undefined}
+              onNavigate={onNavigate}
+            />
           ))}
         </div>
       ))}
@@ -161,7 +216,7 @@ export function Sidebar() {
     <aside className="hidden md:flex md:w-64 md:flex-col md:border-r md:border-[var(--color-border)] md:bg-[var(--color-surface)] md:px-5 md:py-6">
       <Brand />
       <NavSections />
-      <Tagline />
+      <Footer />
     </aside>
   );
 }
@@ -177,6 +232,7 @@ export function Sidebar() {
 export function MobileNav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const { awaitingApproval } = useLiveSidebarStatus();
 
   useEffect(() => {
     setOpen(false);
@@ -193,7 +249,11 @@ export function MobileNav() {
     <div className="md:hidden">
       <button
         onClick={() => setOpen(true)}
-        aria-label="Open navigation menu"
+        aria-label={
+          awaitingApproval
+            ? `Open navigation menu, ${awaitingApproval} transaction${awaitingApproval === 1 ? "" : "s"} awaiting approval`
+            : "Open navigation menu"
+        }
         aria-expanded={open}
         // rounded-2xl, not rounded-full: a plain circle is the generic
         // "Material FAB" shape every template reaches for by default. The
@@ -203,6 +263,14 @@ export function MobileNav() {
         style={{ boxShadow: "0 3px 0 0 var(--tactile-depth), 0 8px 20px rgba(0,0,0,0.18)" }}
       >
         <Menu size={20} />
+        {!!awaitingApproval && (
+          <span
+            className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-[var(--color-bg)] bg-[var(--color-warning)] px-1 text-[10px] font-bold tabular-nums text-[#231702]"
+            aria-hidden="true"
+          >
+            {awaitingApproval > 99 ? "99+" : awaitingApproval}
+          </span>
+        )}
       </button>
 
       {open && (
@@ -233,7 +301,7 @@ export function MobileNav() {
           </button>
         </div>
         <NavSections onNavigate={() => setOpen(false)} />
-        <Tagline />
+        <Footer />
       </aside>
     </div>
   );
