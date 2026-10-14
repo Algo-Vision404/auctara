@@ -917,10 +917,26 @@ def _evaluate_policy_atomic(agent_id: str, tx_id: str, amount_usd: float, catego
 
 
 async def _fail(tx_id: str, task_id: str, agent_id: str, message: str) -> None:
+    """Mark a transaction FAILED. Every other way a transaction stops short
+    of COMPLETED (decline, cancel-on-agent-removal, price-variance VOID)
+    releases any budget it had reserved - this is the one terminal path
+    that didn't, which meant every failure from here on (PayPal order
+    creation, authorization, or capture failing, or any of the earlier
+    research-loop/proposal failures) permanently locked that amount out of
+    the agent's daily/monthly budget forever, even though no money was
+    ever actually spent. Released here, guarded the same way as every
+    other release site: only on the real, first transition into a
+    terminal state (never on a duplicate call to an already-terminal
+    transaction, which would double-release/over-credit the ledger), and
+    only if a reservation actually exists (most of this function's callers
+    fail a transaction before policy ever reserved anything).
+    """
     tx = models.get_transaction(tx_id)
     try:
         if tx and tx["state"] not in TERMINAL_STATES:
             transition(tx["state"], "FAILED")
+            if tx.get("authorized_amount"):
+                models.release_budget(agent_id, tx_id, tx["authorized_amount"])
             # Clear any stale "action required" PayPal state so the UI never shows
             # a dead "Approve on PayPal" call-to-action for a transaction that has
             # genuinely failed. paypal_order_id (if any) is kept for audit history.
@@ -1273,3 +1289,76 @@ async def _finalize_payment(tx_id: str, order: dict) -> None:
         models.update_task_status(task_id, "VOIDED")
         await emit("PAYMENT_VOIDED", reason, task_id=task_id, agent_id=agent_id, transaction_id=tx_id,
                     payload={"reason": reason, **variance})
+
+
+async def reconcile_stale_verifying_transaction(tx: dict) -> None:
+    """Resolve one transaction that has sat in VERIFYING since before the
+    scheduler's staleness cutoff (see list_stale_verifying_transactions /
+    Settings.paypal_verification_timeout_minutes) - the normal path out of
+    VERIFYING is the buyer returning from PayPal's approval page and the
+    frontend calling continue_after_paypal_approval, but nothing ever
+    forced that to happen: a closed tab, a lost connection, or a redirect
+    that simply never arrives leaves a transaction (and the budget it
+    reserved) stuck there forever with no other way out.
+
+    Shares the exact same claim (claim_paypal_continue) a real buyer-return
+    call uses, so this can never race a legitimate in-flight redirect: only
+    one of {a genuine return, a concurrent sweep tick, this call} can ever
+    win it for a given transaction.
+
+    Checks PayPal for what actually happened before assuming the worst -
+    the buyer may well have approved (even authorized) the order with our
+    own redirect callback simply never arriving, in which case this
+    finishes the payment exactly as the normal flow would have, rather
+    than wrongly failing (and refunding the budget hold on) a purchase
+    that actually went through.
+    """
+    tx_id = tx["id"]
+    if not models.claim_paypal_continue(tx_id):
+        return  # a real buyer-return (or another sweep tick) already has it
+
+    try:
+        order = await paypal_orders.get_order(tx["paypal_order_id"])
+    except PayPalError as exc:
+        await _fail(tx_id, tx["task_id"], tx["agent_id"],
+                    f"Lost touch with PayPal while checking on this order: {exc}")
+        return
+
+    if order.get("authorization_id"):
+        # The buyer did approve *and* authorize - only our own redirect
+        # callback never arrived. Complete it exactly as that would have.
+        await _finalize_payment(tx_id, order)
+        return
+
+    if order.get("status") == "APPROVED":
+        # The buyer approved but PayPal never got (or we never received)
+        # the follow-up authorize call. Make it ourselves, same as the
+        # redirect-driven path does.
+        try:
+            authorized = await paypal_orders.authorize_order(tx["paypal_order_id"])
+        except PayPalError as exc:
+            await _fail(tx_id, tx["task_id"], tx["agent_id"], f"PayPal authorization failed: {exc}")
+            return
+        await _finalize_payment(tx_id, authorized)
+        return
+
+    # The buyer never approved within the timeout window. PayPal's own
+    # order will eventually expire on its own, but there is no reason to
+    # wait on that - this will never resolve itself, so say so plainly
+    # (and release the budget it was holding) instead of leaving it stuck.
+    await _fail(
+        tx_id, tx["task_id"], tx["agent_id"],
+        "Timed out waiting for PayPal approval - no response was received in time.",
+    )
+
+
+async def reconcile_stale_verifying_transactions() -> int:
+    """Find every transaction stuck in VERIFYING past the configured
+    timeout and resolve each one. Called on every scheduler tick (see
+    app/scheduler.py) - returns the count handled, for logging/tests."""
+    settings = get_settings()
+    cutoff = models.window_start_iso(settings.paypal_verification_timeout_minutes)
+    stale = models.list_stale_verifying_transactions(cutoff)
+    for tx in stale:
+        await reconcile_stale_verifying_transaction(tx)
+    return len(stale)

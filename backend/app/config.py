@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     # tasks aren't triggered twice.
     run_scheduler_inprocess: bool = True
 
+    # How long a transaction may sit in VERIFYING (PayPal order created,
+    # waiting on the buyer to approve/return) before the scheduler's own
+    # reconciliation sweep (see app/scheduler.py) steps in and resolves it
+    # one way or the other, instead of leaving it stuck forever if the
+    # buyer closes the tab, loses their connection, or the redirect back
+    # never arrives for any reason. Generous by default - this must never
+    # fire while a real checkout could still legitimately be in progress.
+    paypal_verification_timeout_minutes: int = 30
+
     @property
     def paypal_base_url(self) -> str:
         if self.paypal_environment.lower() == "live":

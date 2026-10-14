@@ -1,11 +1,18 @@
 """Background execution of recurring agent commerce (the Bryntum-driven
-Agent Operations Schedule).
+Agent Operations Schedule), plus reconciliation of PayPal checkouts that
+never came back on their own.
 
-This is the deterministic bridge between a persisted `scheduled_tasks` row
-and a real task execution: on every poll tick it finds schedules whose
-`next_run_at` has arrived, spawns a genuine `run_task()` through the normal
-agent -> policy -> PayPal pipeline (no shortcuts, no simulated outcomes),
-and advances the schedule's `next_run_at` by its recurrence.
+On every poll tick this:
+  1. Finds scheduled tasks whose `next_run_at` has arrived, spawns a
+     genuine `run_task()` through the normal agent -> policy -> PayPal
+     pipeline (no shortcuts, no simulated outcomes), and advances the
+     schedule's `next_run_at` by its recurrence.
+  2. Finds transactions stuck in VERIFYING (a PayPal order was created,
+     the buyer was sent off to approve it) past
+     Settings.paypal_verification_timeout_minutes, and resolves each one
+     - checking PayPal for what actually happened rather than assuming
+     the worst - instead of leaving them (and the budget they reserved)
+     stuck forever if the buyer's redirect back never arrives.
 
 Runs either in-process (default, convenient for local/dev and this sandbox,
 controlled by Settings.run_scheduler_inprocess) or as a standalone process
@@ -16,12 +23,13 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app.agent.orchestrator import emit, run_task
+from app.agent.orchestrator import emit, reconcile_stale_verifying_transactions, run_task
 from app.database import models
 
 logger = logging.getLogger("agentauth.scheduler")
 
 POLL_INTERVAL_SECONDS = 15
+
 
 
 async def run_due_schedules() -> int:
@@ -85,6 +93,12 @@ async def scheduler_loop(stop_event: "asyncio.Event | None" = None) -> None:
                 logger.info("Triggered %d scheduled task(s).", n)
         except Exception:  # noqa: BLE001
             logger.exception("Scheduler tick failed")
+        try:
+            reconciled = await reconcile_stale_verifying_transactions()
+            if reconciled:
+                logger.info("Reconciled %d stale VERIFYING transaction(s).", reconciled)
+        except Exception:  # noqa: BLE001
+            logger.exception("Stale-VERIFYING reconciliation tick failed")
         try:
             if stop_event:
                 await asyncio.wait_for(stop_event.wait(), timeout=POLL_INTERVAL_SECONDS)

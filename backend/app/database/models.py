@@ -413,6 +413,26 @@ def list_scheduled_tasks(agent_id: str | None = None) -> list[dict]:
     return [row_to_dict(r) for r in rows]
 
 
+def list_stale_verifying_transactions(older_than_iso: str) -> list[dict]:
+    """Transactions still sitting in VERIFYING (a PayPal order was created,
+    the buyer was sent off to approve it) that haven't moved since before
+    `older_than_iso`. Used by the scheduler's reconciliation sweep to find
+    ones the normal redirect-driven flow may never resolve on its own - the
+    buyer closed the tab, lost their connection, or the redirect back
+    simply never arrived. paypal_order_id IS NOT NULL is always true for a
+    real VERIFYING row (the order is created in the same step that sets the
+    state), but is checked anyway so a malformed/partial row can never be
+    handed to code that assumes one exists.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM transactions WHERE state='VERIFYING' AND paypal_order_id IS NOT NULL "
+        "AND updated_at <= ? ORDER BY updated_at ASC",
+        (older_than_iso,),
+    ).fetchall()
+    return [row_to_dict(r) for r in rows]
+
+
 def list_due_scheduled_tasks(now_iso: str) -> list[dict]:
     conn = get_connection()
     rows = conn.execute(
