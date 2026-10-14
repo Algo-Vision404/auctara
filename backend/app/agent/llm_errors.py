@@ -145,7 +145,7 @@ RATE_LIMITED_MESSAGES = [
 DAILY_QUOTA_EXHAUSTED_MESSAGES = [
     "I've used up all the thinking I'm allowed for today and I'm tapped out until it resets later. "
     "An administrator can raise today's limit, or it'll free up on its own after the reset.",
-    "I'm out of today's allowance for thinking, not just overloaded for a moment - this won't clear "
+    "I'm out of today's allowance for thinking, not just temporarily overloaded - this won't clear "
     "up on retry. An administrator needs to either raise the daily limit or wait it out with you.",
 ]
 
