@@ -303,91 +303,129 @@ async def _continue_research(agent: dict, task: dict, tx_id: str, messages: list
         )
         return
 
+    # Everything from here on - normalizing the price, evaluating policy
+    # (which reserves budget the instant it decides ALLOW/APPROVAL_REQUIRED),
+    # and recording that decision - used to have no safety net of its own.
+    # The research loop above is wrapped in a catch-all that fails the
+    # transaction cleanly on any unexpected error; this block, reached only
+    # after that loop already succeeded, was not. A bug or a transient
+    # failure anywhere here (a DB write, a bad field on the proposal, an
+    # unanticipated exception out of the policy engine) would propagate out
+    # of run_task entirely - it runs fire-and-forget via
+    # asyncio.create_task, so nothing would ever observe that exception,
+    # the transaction would sit stuck in whatever state it last reached
+    # forever, and if policy had already reserved budget for it, that hold
+    # would never be released either. Wrapping this block the same way the
+    # research loop already is closes that gap: _fail() (which does know
+    # how to release a reservation) is now guaranteed to be the last word
+    # for every transaction, not just the ones that happen to fail somewhere
+    # the original code anticipated.
     try:
-        amount_usd = await _normalize_to_usd(proposal["amount"], proposal["currency"])
-    except ExchangeRateError as exc:
-        await _fail(tx_id, task_id, agent["id"], str(exc))
-        return
+        try:
+            amount_usd = await _normalize_to_usd(proposal["amount"], proposal["currency"])
+        except ExchangeRateError as exc:
+            await _fail(tx_id, task_id, agent["id"], str(exc))
+            return
 
-    # Deterministic backstop, independent of the tool-call validation in
-    # _run_research_loop above: no proposal with a non-positive amount may
-    # ever reach the policy engine or PayPal, no matter how it got here. A
-    # $0.00 (or negative) "price" trivially clears every budget check, so
-    # without this it would sail through ALLOW and only fail once PayPal
-    # itself rejects a zero-amount order - after the task already looked
-    # proposed and approved to the user, with a confusing PayPal error as
-    # the only explanation.
-    if not (amount_usd > 0):
+        # Deterministic backstop, independent of the tool-call validation in
+        # _run_research_loop above: no proposal with a non-positive amount may
+        # ever reach the policy engine or PayPal, no matter how it got here. A
+        # $0.00 (or negative) "price" trivially clears every budget check, so
+        # without this it would sail through ALLOW and only fail once PayPal
+        # itself rejects a zero-amount order - after the task already looked
+        # proposed and approved to the user, with a confusing PayPal error as
+        # the only explanation.
+        if not (amount_usd > 0):
+            await _fail(
+                tx_id, task_id, agent["id"],
+                f"The agent proposed {proposal['merchant']} at "
+                f"{proposal['amount']} {proposal['currency']}, which is not a real, positive "
+                "price. No order was sent to PayPal.",
+            )
+            return
+
+        models.update_transaction(
+            tx_id,
+            merchant=proposal["merchant"],
+            amount=proposal["amount"],
+            currency=proposal["currency"].upper(),
+            category=proposal["category"].lower(),
+            reason=proposal["reason"],
+            source_url=_clean_optional_str(proposal.get("source_url")),
+            image_url=_clean_optional_str(proposal.get("image_url")),
+            retailer=_clean_optional_str(proposal.get("retailer")),
+            channel3_product_id=_clean_optional_str(proposal.get("channel3_product_id")),
+            expected_amount=round(amount_usd, 2),
+        )
+        _set_tx_state(tx_id, "RESEARCHING", "PROPOSED")
+        await emit(
+            "PROPOSAL_CREATED",
+            f"Purchase proposal created: {proposal['merchant']}, ${proposal['amount']:.2f} {proposal['currency']}.",
+            task_id=task_id, agent_id=agent["id"], transaction_id=tx_id,
+            payload={**proposal, "amount_usd": round(amount_usd, 2)},
+        )
+
+        _set_tx_state(tx_id, "PROPOSED", "POLICY_CHECK")
+        decision = _evaluate_policy_atomic(
+            agent["id"], tx_id, amount_usd, proposal["category"], policy_row,
+            merchant=proposal.get("merchant") or "",
+            product_name=proposal.get("product_name") or "",
+            reason=proposal.get("reason") or "",
+        )
+
+        models.update_transaction(
+            tx_id,
+            decision=decision["decision"],
+            decision_reason=decision["reason"],
+            authorized_amount=decision.get("authorized_amount"),
+            remaining_daily_budget=decision.get("remaining_daily_budget"),
+            remaining_monthly_budget=decision.get("remaining_monthly_budget"),
+        )
+        await emit(
+            "POLICY_EVALUATED", f"Policy engine returned: {decision['decision']}.",
+            task_id=task_id, agent_id=agent["id"], transaction_id=tx_id, payload=decision,
+        )
+
+        if decision["decision"] == "BLOCK":
+            _set_tx_state(tx_id, "POLICY_CHECK", "BLOCKED")
+            models.update_task_status(task_id, "BLOCKED")
+            await emit("POLICY_BLOCKED", decision["reason"], task_id=task_id, agent_id=agent["id"],
+                        transaction_id=tx_id, payload=decision)
+            return
+
+        if decision["decision"] == "APPROVAL_REQUIRED":
+            _set_tx_state(tx_id, "POLICY_CHECK", "AWAITING_APPROVAL")
+            models.update_task_status(task_id, "AWAITING_APPROVAL")
+            await emit("APPROVAL_REQUESTED",
+                        f"Human approval required for ${decision['requested_amount']:.2f}.",
+                        task_id=task_id, agent_id=agent["id"], transaction_id=tx_id, payload=decision)
+            return
+
+        # ALLOW
+        _set_tx_state(tx_id, "POLICY_CHECK", "AUTHORIZED")
+        await emit("POLICY_ALLOWED", decision["reason"], task_id=task_id, agent_id=agent["id"],
+                    transaction_id=tx_id, payload=decision)
+        models.update_task_status(task_id, "EXECUTING")
+    except Exception:  # noqa: BLE001
+        logger.exception("Unexpected error finalizing agent proposal/policy decision")
         await _fail(
             tx_id, task_id, agent["id"],
-            f"The agent proposed {proposal['merchant']} at "
-            f"{proposal['amount']} {proposal['currency']}, which is not a real, positive "
-            "price. No order was sent to PayPal.",
+            "Something unexpected went wrong while recording this agent's purchase decision. "
+            "Please try again, and contact your administrator if it keeps happening.",
         )
         return
 
-    models.update_transaction(
-        tx_id,
-        merchant=proposal["merchant"],
-        amount=proposal["amount"],
-        currency=proposal["currency"].upper(),
-        category=proposal["category"].lower(),
-        reason=proposal["reason"],
-        source_url=_clean_optional_str(proposal.get("source_url")),
-        image_url=_clean_optional_str(proposal.get("image_url")),
-        retailer=_clean_optional_str(proposal.get("retailer")),
-        channel3_product_id=_clean_optional_str(proposal.get("channel3_product_id")),
-        expected_amount=round(amount_usd, 2),
-    )
-    _set_tx_state(tx_id, "RESEARCHING", "PROPOSED")
-    await emit(
-        "PROPOSAL_CREATED",
-        f"Purchase proposal created: {proposal['merchant']}, ${proposal['amount']:.2f} {proposal['currency']}.",
-        task_id=task_id, agent_id=agent["id"], transaction_id=tx_id,
-        payload={**proposal, "amount_usd": round(amount_usd, 2)},
-    )
-
-    _set_tx_state(tx_id, "PROPOSED", "POLICY_CHECK")
-    decision = _evaluate_policy_atomic(
-        agent["id"], tx_id, amount_usd, proposal["category"], policy_row,
-        merchant=proposal.get("merchant") or "",
-        product_name=proposal.get("product_name") or "",
-        reason=proposal.get("reason") or "",
-    )
-
-    models.update_transaction(
-        tx_id,
-        decision=decision["decision"],
-        decision_reason=decision["reason"],
-        authorized_amount=decision.get("authorized_amount"),
-        remaining_daily_budget=decision.get("remaining_daily_budget"),
-        remaining_monthly_budget=decision.get("remaining_monthly_budget"),
-    )
-    await emit(
-        "POLICY_EVALUATED", f"Policy engine returned: {decision['decision']}.",
-        task_id=task_id, agent_id=agent["id"], transaction_id=tx_id, payload=decision,
-    )
-
-    if decision["decision"] == "BLOCK":
-        _set_tx_state(tx_id, "POLICY_CHECK", "BLOCKED")
-        models.update_task_status(task_id, "BLOCKED")
-        await emit("POLICY_BLOCKED", decision["reason"], task_id=task_id, agent_id=agent["id"],
-                    transaction_id=tx_id, payload=decision)
-        return
-
-    if decision["decision"] == "APPROVAL_REQUIRED":
-        _set_tx_state(tx_id, "POLICY_CHECK", "AWAITING_APPROVAL")
-        models.update_task_status(task_id, "AWAITING_APPROVAL")
-        await emit("APPROVAL_REQUESTED",
-                    f"Human approval required for ${decision['requested_amount']:.2f}.",
-                    task_id=task_id, agent_id=agent["id"], transaction_id=tx_id, payload=decision)
-        return
-
-    # ALLOW
-    _set_tx_state(tx_id, "POLICY_CHECK", "AUTHORIZED")
-    await emit("POLICY_ALLOWED", decision["reason"], task_id=task_id, agent_id=agent["id"],
-                transaction_id=tx_id, payload=decision)
-    models.update_task_status(task_id, "EXECUTING")
+    # execute_payment (and _finalize_payment, which it may call directly)
+    # deliberately stays outside the try/except above: by the time it runs,
+    # real PayPal calls that can actually move money are in play, and it
+    # already manages its own terminal transitions and budget bookkeeping
+    # with that in mind (e.g. releasing the hold on a void, but never on a
+    # completed capture). Routing an exception from inside it through the
+    # same generic `_fail()` used above would be wrong here specifically:
+    # `_fail()` cannot tell "nothing happened yet" apart from "PayPal has
+    # already captured this money", and blindly releasing budget for a
+    # transaction PayPal actually completed would silently under-count real
+    # spend against the agent's budget while the charge still stands.
     await execute_payment(tx_id)
 
 
@@ -903,6 +941,17 @@ def _evaluate_policy_atomic(agent_id: str, tx_id: str, amount_usd: float, catego
     blocked_categories entry that isn't one of the fixed classification
     categories (e.g. "gambling") can only ever be enforced against what
     the proposal actually says, never against ctx.category alone.
+
+    The transaction row's own authorized_amount is written in the exact
+    same BEGIN IMMEDIATE block as the budget reservation, not left to the
+    caller's own (separate, later) update_transaction call. _fail() decides
+    whether a reservation needs releasing purely by reading that column off
+    the transaction row - if reserve_budget and that column could ever be
+    written in two different commits, any crash landing between them would
+    leave a real reservation in the ledger that nothing could ever discover
+    belonged to this transaction. Committing them together closes that
+    window entirely: by the moment this function returns, the ledger and
+    the transaction row always agree.
     """
     policy = policy_from_row(policy_row)
     with immediate_transaction():
@@ -913,6 +962,7 @@ def _evaluate_policy_atomic(agent_id: str, tx_id: str, amount_usd: float, catego
         decision = policy_engine.evaluate(policy, ctx)
         if decision["decision"] in ("ALLOW", "APPROVAL_REQUIRED"):
             models.reserve_budget(agent_id, tx_id, decision["authorized_amount"])
+            models.update_transaction(tx_id, authorized_amount=decision["authorized_amount"])
     return decision
 
 
