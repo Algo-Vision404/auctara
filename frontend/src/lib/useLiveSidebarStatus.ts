@@ -17,16 +17,11 @@ export type LiveSidebarStatus = {
   // action count, not a vanity metric, so it's worth a badge in the nav
   // itself rather than something you only discover by opening the ledger.
   awaitingApproval: number;
-  // Whether the last poll reached the backend at all. Reusing the
-  // dashboard-summary call for this (rather than a second /health poll)
-  // means one request answers both "how many need me?" and "is the
-  // backend even up?".
-  backendReachable: boolean;
 };
 
 const POLL_INTERVAL_MS = 20_000;
 
-let current: LiveSidebarStatus = { awaitingApproval: 0, backendReachable: true };
+let current: LiveSidebarStatus = { awaitingApproval: 0 };
 let timer: ReturnType<typeof setInterval> | null = null;
 const subscribers = new Set<(status: LiveSidebarStatus) => void>();
 
@@ -37,11 +32,13 @@ function notify() {
 async function poll() {
   try {
     const summary = await api.dashboardSummary();
-    current = { awaitingApproval: summary.awaiting_approval, backendReachable: true };
+    current = { awaitingApproval: summary.awaiting_approval };
+    notify();
   } catch {
-    current = { ...current, backendReachable: false };
+    // A failed poll just leaves the last-known count in place rather than
+    // zeroing it out - a transient blip shouldn't make a real pending
+    // approval disappear from the nav.
   }
-  notify();
 }
 
 function ensureStarted() {

@@ -60,36 +60,13 @@ const SETTINGS_ITEM = { href: "/settings", label: "Settings", icon: Settings2 };
 // A bordered callout, not a line of muted text floating under the nav -
 // plain small-print at the bottom of a sidebar is one of the clearest
 // "this got scaffolded, not designed" tells, since nothing about its
-// container signals it was placed on purpose. The live connection line on
-// top makes the same card earn its place on every page, not just the one
-// it happens to be the brand tagline for: you can tell the backend is
-// reachable without opening a page and waiting for its own health check
-// to fail.
+// container signals it was placed on purpose.
 function Footer() {
-  const { backendReachable } = useLiveSidebarStatus();
   return (
-    <div className="mt-4 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]">
-      <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] px-3 py-2">
-        <span
-          className={clsx(
-            "h-1.5 w-1.5 shrink-0 rounded-full",
-            backendReachable ? "bg-[var(--color-success)]" : "bg-[var(--color-danger)]"
-          )}
-        />
-        <span
-          className={clsx(
-            "text-[10px] font-semibold uppercase tracking-wide",
-            backendReachable ? "text-[var(--color-text-secondary)]" : "text-[var(--color-danger)]"
-          )}
-        >
-          {backendReachable ? "Backend connected" : "Backend unreachable"}
-        </span>
-      </div>
-      <div className="px-3 py-2.5 text-[11px] leading-snug text-[var(--color-text-secondary)]">
-        <span className="font-semibold text-[var(--color-text)]">Let AI agents act.</span>
-        <br />
-        Keep financial authority under your control.
-      </div>
+    <div className="mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2.5 text-[11px] leading-snug text-[var(--color-text-secondary)]">
+      <span className="font-semibold text-[var(--color-text)]">Let AI agents act.</span>
+      <br />
+      Keep financial authority under your control.
     </div>
   );
 }
