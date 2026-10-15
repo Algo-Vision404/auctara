@@ -25,6 +25,7 @@ export default function LedgerPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const loadAll = useCallback(() => {
     Promise.all([api.listTransactions(), api.listAgents()])
@@ -33,7 +34,8 @@ export default function LedgerPage() {
         setAgents(a);
         setError(null);
       })
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to load ledger"));
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to load ledger"))
+      .finally(() => setLoading(false));
   }, []);
 
   const mergeTransaction = useCallback((updated: Transaction) => {
@@ -101,7 +103,7 @@ export default function LedgerPage() {
             {error}
           </div>
         )}
-        <OperationsConsoleGrid transactions={transactions} agents={agents} />
+        <OperationsConsoleGrid transactions={transactions} agents={agents} loading={loading} />
       </main>
     </div>
   );

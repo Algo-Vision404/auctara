@@ -31,6 +31,7 @@ import {
   CheckCircle2,
   TriangleAlert,
   XCircle,
+  Loader2,
 } from "lucide-react";
 
 // Row Grouping, the drag-to-group panel, Set Filters, and the Status Bar
@@ -195,7 +196,22 @@ function PriceCheckCell(p: ICellRendererParams<ConsoleRow>) {
 // "there is genuinely nothing here" and "your filters are hiding everything",
 // which looks identical to a user and is a common source of a false "this is
 // broken" impression.
-function NoRowsOverlay({ filtered }: { filtered: boolean }) {
+//
+// `loading` covers a third, separate case this overlay used to conflate with
+// "genuinely empty": the very first render, before the ledger page's initial
+// listTransactions() call has resolved. transactions starts as [], so
+// without this, every single page load briefly - but really - showed "No
+// transactions yet." even for an account with a long history, for however
+// long that first fetch took.
+function NoRowsOverlay({ filtered, loading }: { filtered: boolean; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+        <Loader2 size={28} className="animate-spin text-[var(--color-text-muted)]" />
+        <p className="text-sm font-medium text-[var(--color-text)]">Loading transactions…</p>
+      </div>
+    );
+  }
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
       <PackageSearch size={28} className="text-[var(--color-text-muted)]" />
@@ -211,8 +227,17 @@ function NoRowsOverlay({ filtered }: { filtered: boolean }) {
   );
 }
 
-export function OperationsConsoleGrid({ transactions, agents }: { transactions: Transaction[]; agents: Agent[] }) {
+export function OperationsConsoleGrid({
+  transactions,
+  agents,
+  loading = false,
+}: {
+  transactions: Transaction[];
+  agents: Agent[];
+  loading?: boolean;
+}) {
   const { resolvedTheme } = useTheme();
+
   const router = useRouter();
   const gridRef = useRef<AgGridReact>(null);
   const [quickFilter, setQuickFilter] = useState("");
@@ -659,7 +684,7 @@ export function OperationsConsoleGrid({ transactions, agents }: { transactions: 
               onRowClicked={(e) => e.data && setSelected(e.data)}
               rowStyle={{ cursor: "pointer" }}
               noRowsOverlayComponent={NoRowsOverlay}
-              noRowsOverlayComponentParams={{ filtered: hasActiveFilters }}
+              noRowsOverlayComponentParams={{ filtered: hasActiveFilters, loading }}
             />
           )}
         </div>
