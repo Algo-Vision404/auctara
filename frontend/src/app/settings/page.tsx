@@ -5,14 +5,19 @@ import { TopBar } from "@/components/nav/TopBar";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { Badge } from "@/components/ui/Badge";
 import { api } from "@/lib/api";
-import { CircleCheck, TriangleAlert, ShieldCheck, Settings2 } from "lucide-react";
+import { CircleCheck, TriangleAlert, ShieldCheck, Settings2, Loader2 } from "lucide-react";
 
 export default function SettingsPage() {
   const [health, setHealth] = useState<Awaited<ReturnType<typeof api.health>> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.health().then(setHealth).catch(() => setError("Could not reach the AgentAuth backend."));
+    api
+      .health()
+      .then(setHealth)
+      .catch(() => setError("Could not reach the AgentAuth backend."))
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -36,6 +41,11 @@ export default function SettingsPage() {
           <h3 className="flex items-center gap-2 font-semibold">
             <ShieldCheck size={18} className="text-[var(--color-accent)]" /> Backend Configuration
           </h3>
+          {loading && (
+            <p className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+              <Loader2 size={14} className="animate-spin" /> Checking backend configuration…
+            </p>
+          )}
           {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
           {health && (
             <div className="space-y-3 text-sm">
