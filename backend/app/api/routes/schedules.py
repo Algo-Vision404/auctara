@@ -75,12 +75,21 @@ def update_schedule(sched_id: str, req: UpdateScheduleRequest):
         raise HTTPException(status_code=404, detail="Scheduled task not found")
     if req.status and req.status not in {"ACTIVE", "PAUSED", "CANCELLED"}:
         raise HTTPException(status_code=400, detail="status must be ACTIVE, PAUSED, or CANCELLED")
-    fields = {}
-    if req.status:
-        fields["status"] = req.status
-    if not fields:
+    if not req.status:
         return sched
-    return models.update_scheduled_task(sched_id, **fields)
+    # COMPLETED and CANCELLED are true terminal states (see
+    # models.SCHEDULE_STATUS_EDGES's docstring): reactivating a schedule
+    # that already fired for good would leave its next_run_at in the past,
+    # which the scheduler would then see as due all over again on its very
+    # next tick, firing a second real task - and a second real PayPal
+    # purchase attempt - for an occurrence that already completed.
+    updated = models.transition_schedule_status(sched_id, req.status)
+    if updated is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot move this schedule from {sched['status']} to {req.status}.",
+        )
+    return updated
 
 
 @router.get("/schedules/{sched_id}/runs")

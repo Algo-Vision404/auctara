@@ -208,3 +208,75 @@ async def test_schedule_runs_reflects_real_firing_history(monkeypatch):
 
         missing = client.get("/schedules/sched_doesnotexist/runs")
         assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_reactivating_a_completed_once_schedule_is_rejected(monkeypatch):
+    """A ONCE schedule's next_run_at is left exactly where it was the
+    moment it fired - in the past (see claim_due_scheduled_task). Before
+    transition_schedule_status existed, update_scheduled_task would
+    blindly write status='ACTIVE' back onto a COMPLETED row with no check
+    at all, and the very next scheduler tick would see that past
+    next_run_at as due all over again - firing a second real task (and in
+    production, a second real PayPal purchase attempt) for an occurrence
+    that had already completed. COMPLETED must be a true dead end.
+    """
+    monkeypatch.setattr(scheduler, "run_task", lambda task_id: asyncio.sleep(0))
+
+    agent = _make_agent()
+    sched = models.create_scheduled_task(
+        agent["id"], "One-off purchase", 20, "ONCE", "2020-01-01T00:00:00.000000Z"
+    )
+    n = await scheduler.run_due_schedules()
+    assert n == 1
+    assert models.get_scheduled_task(sched["id"])["status"] == "COMPLETED"
+
+    result = models.transition_schedule_status(sched["id"], "ACTIVE")
+    assert result is None
+    assert models.get_scheduled_task(sched["id"])["status"] == "COMPLETED"
+
+    # The real-world consequence this guards against: without the fix, the
+    # schedule would now be due again and a second scheduler tick would
+    # fire it a second time.
+    n2 = await scheduler.run_due_schedules()
+    assert n2 == 0
+    assert models.get_scheduled_task(sched["id"])["status"] == "COMPLETED"
+
+
+def test_cancelled_schedule_cannot_be_reactivated():
+    agent = _make_agent()
+    sched = models.create_scheduled_task(agent["id"], "Renewal", 20, "MONTHLY", "2099-01-01T00:00:00.000000Z")
+    assert models.transition_schedule_status(sched["id"], "CANCELLED")["status"] == "CANCELLED"
+    assert models.transition_schedule_status(sched["id"], "ACTIVE") is None
+    assert models.get_scheduled_task(sched["id"])["status"] == "CANCELLED"
+
+
+def test_legitimate_pause_and_resume_still_work():
+    agent = _make_agent()
+    sched = models.create_scheduled_task(agent["id"], "Renewal", 20, "WEEKLY", "2099-01-01T00:00:00.000000Z")
+    paused = models.transition_schedule_status(sched["id"], "PAUSED")
+    assert paused["status"] == "PAUSED"
+    resumed = models.transition_schedule_status(sched["id"], "ACTIVE")
+    assert resumed["status"] == "ACTIVE"
+
+
+def test_patch_schedules_endpoint_rejects_reactivating_a_completed_schedule():
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    agent = _make_agent()
+    sched = models.create_scheduled_task(agent["id"], "One-off", 20, "ONCE", "2020-01-01T00:00:00.000000Z")
+    # Simulate it having already fired and completed, same as a real tick would.
+    models.update_scheduled_task(sched["id"], status="COMPLETED")
+
+    with TestClient(app) as client:
+        resp = client.patch(f"/schedules/{sched['id']}", json={"status": "ACTIVE"})
+        assert resp.status_code == 400
+        assert models.get_scheduled_task(sched["id"])["status"] == "COMPLETED"
+
+        # The legitimate PAUSED -> ACTIVE path through the real endpoint still works.
+        sched2 = models.create_scheduled_task(agent["id"], "Recurring", 20, "DAILY", "2099-01-01T00:00:00.000000Z")
+        models.update_scheduled_task(sched2["id"], status="PAUSED")
+        resp2 = client.patch(f"/schedules/{sched2['id']}", json={"status": "ACTIVE"})
+        assert resp2.status_code == 200
+        assert resp2.json()["status"] == "ACTIVE"

@@ -485,6 +485,60 @@ def update_scheduled_task(sched_id: str, **fields: Any) -> dict:
     return get_scheduled_task(sched_id)
 
 
+# A schedule's status has no equivalent of the transaction state machine
+# (see app/state_machine.py) guarding it - update_scheduled_task above will
+# happily blind-write any status onto any row, for any caller, which is
+# fine for the system's own internal, trusted writes (the scheduler
+# advancing/cancelling a row it just evaluated, an agent retirement
+# force-cancelling one). PATCH /schedules/{id} is the one caller that
+# forwards a human-supplied status straight through, and COMPLETED/
+# CANCELLED are meant to be true terminal states - the product's own UI
+# never offers a way back out of either (no action buttons render for a
+# COMPLETED schedule; CANCELLED has no "undo"). Without a real guard here,
+# reactivating a COMPLETED ONCE-schedule back to ACTIVE left its
+# next_run_at exactly where claim_due_scheduled_task set it when the
+# schedule fired - in the past - so the very next scheduler tick would see
+# it as due all over again and fire a second real task (and therefore a
+# second real PayPal purchase attempt) for an occurrence that had already
+# completed.
+SCHEDULE_STATUS_EDGES: dict[str, set[str]] = {
+    "ACTIVE": {"PAUSED", "CANCELLED"},
+    "PAUSED": {"ACTIVE", "CANCELLED"},
+    "COMPLETED": set(),
+    "CANCELLED": set(),
+}
+
+
+def transition_schedule_status(sched_id: str, target_status: str) -> Optional[dict]:
+    """Atomically move a scheduled task to `target_status`, succeeding only
+    if its current status still has that edge available. Returns the
+    updated row, or None if the row no longer exists, the move isn't a
+    legal edge from its current status (e.g. target is already-COMPLETED
+    or already-CANCELLED), or a concurrent caller already moved it out of
+    the status this call still believed it was in.
+
+    Uses the same BEGIN IMMEDIATE compare-and-swap pattern as
+    atomic_transition/claim_due_scheduled_task, for the same reason: two
+    concurrent PATCH calls (a double-click, two open tabs) must never both
+    believe they are the one making this move.
+    """
+    with immediate_transaction() as conn:
+        row = conn.execute("SELECT status FROM scheduled_tasks WHERE id=?", (sched_id,)).fetchone()
+        if row is None:
+            return None
+        current = row["status"]
+        if target_status not in SCHEDULE_STATUS_EDGES.get(current, set()):
+            return None
+        conn.execute(
+            "UPDATE scheduled_tasks SET status=?, updated_at=? WHERE id=? AND status=?",
+            (target_status, now_iso(), sched_id, current),
+        )
+        cur = conn.execute("SELECT changes()").fetchone()
+        if cur[0] != 1:
+            return None
+    return get_scheduled_task(sched_id)
+
+
 def delete_scheduled_task(sched_id: str) -> None:
     conn = get_connection()
     conn.execute("DELETE FROM scheduled_tasks WHERE id=?", (sched_id,))
