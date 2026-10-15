@@ -41,6 +41,7 @@ export default function SchedulePage() {
   const [schedules, setSchedules] = useState<ScheduledTask[]>([]);
   const [runsBySchedule, setRunsBySchedule] = useState<Record<string, ScheduleRun[]>>({});
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [highlighted, setHighlighted] = useState<string | null>(null);
 
   const [agentId, setAgentId] = useState("");
@@ -80,7 +81,8 @@ export default function SchedulePage() {
             // if this secondary fetch fails; the schedules themselves loaded fine.
           }
         })
-        .catch((e) => mounted && setError(e instanceof ApiError ? e.message : "Failed to load schedule data"));
+        .catch((e) => mounted && setError(e instanceof ApiError ? e.message : "Failed to load schedule data"))
+        .finally(() => mounted && setLoading(false));
     };
     load();
     const i = setInterval(load, 5000);
@@ -177,7 +179,11 @@ export default function SchedulePage() {
             pipeline as an on-demand task. Every occurrence is a real, independently evaluated purchase decision.
           </p>
 
-          {activeAgents.length === 0 ? (
+          {loading ? (
+            <p className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+              <Loader2 size={14} className="animate-spin" /> Loading agents…
+            </p>
+          ) : activeAgents.length === 0 ? (
             <p className="text-sm text-[var(--color-text-muted)]">
               No active agents yet.{" "}
               <Link href="/agents/new" className="font-semibold text-[var(--color-accent)]">
@@ -277,7 +283,11 @@ export default function SchedulePage() {
           <div className="border-b border-[var(--color-border)] px-6 py-4">
             <h2 className="font-semibold">All scheduled tasks</h2>
           </div>
-          {schedules.length === 0 ? (
+          {loading ? (
+            <p className="flex items-center justify-center gap-2 px-6 py-8 text-sm text-[var(--color-text-muted)]">
+              <Loader2 size={14} className="animate-spin" /> Loading scheduled tasks…
+            </p>
+          ) : schedules.length === 0 ? (
             <p className="px-6 py-8 text-sm text-[var(--color-text-muted)]">
               No scheduled tasks yet. Create one above to delegate a recurring instruction.
             </p>
