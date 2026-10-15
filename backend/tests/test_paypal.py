@@ -294,3 +294,57 @@ async def test_create_order_idempotency_key_is_deterministic_per_transaction(mon
     )
     all_keys = {options["paypal_request_id"] for _, options in fake.orders.calls}
     assert all_keys == {"agentauth-order-tx_same_transaction", "agentauth-order-tx_other_transaction"}
+
+
+@pytest.mark.asyncio
+async def test_authorize_order_sends_deterministic_idempotency_key(monkeypatch):
+    """Same bug class as create_order: PayPal recommends PayPal-Request-Id on
+    every POST/PUT call so a lost response + retry can't double-authorize
+    the same order. The key must depend only on the order id, so every call
+    (and any retry neither we nor the caller know happened) for the same
+    order sends the exact same key.
+    """
+    fake = FakeClient(order_responses={
+        "authorize_order": FakeApiResponse(Order.from_dictionary(ORDER_CREATED_WITH_AUTH)),
+    })
+    monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
+
+    await paypal_orders.authorize_order("ORDER123")
+    await paypal_orders.authorize_order("ORDER123")
+
+    keys = {options["paypal_request_id"] for _, options in fake.orders.calls}
+    assert keys == {"agentauth-authorize-ORDER123"}
+
+
+@pytest.mark.asyncio
+async def test_capture_authorization_sends_deterministic_idempotency_key(monkeypatch):
+    """PayPal's own docs call this out specifically for /capture: a lost
+    5xx/timeout response followed by a retry without a stable
+    PayPal-Request-Id risks a real second charge for the same authorization.
+    The key must depend only on the authorization id.
+    """
+    fake = FakeClient(payment_responses={
+        "capture_authorized_payment": FakeApiResponse(CapturedPayment.from_dictionary(CAPTURE_RESPONSE)),
+    })
+    monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
+
+    await paypal_orders.capture_authorization("AUTH123")
+    await paypal_orders.capture_authorization("AUTH123")
+
+    keys = {options["paypal_request_id"] for _, options in fake.payments.calls}
+    assert keys == {"agentauth-capture-AUTH123"}
+
+
+@pytest.mark.asyncio
+async def test_void_authorization_sends_deterministic_idempotency_key(monkeypatch):
+    fake = FakeClient(payment_responses={
+        "void_payment": FakeApiResponse(
+            PaymentAuthorization.from_dictionary({"id": "AUTH123", "status": "VOIDED"})
+        ),
+    })
+    monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
+
+    await paypal_orders.void_authorization("AUTH123")
+
+    _, options = fake.payments.calls[0]
+    assert options["paypal_request_id"] == "agentauth-void-AUTH123"

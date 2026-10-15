@@ -138,12 +138,23 @@ async def get_order(order_id: str) -> dict:
 
 
 async def authorize_order(order_id: str) -> dict:
-    """Used after a buyer has approved the order via the redirect flow."""
+    """Used after a buyer has approved the order via the redirect flow.
+
+    Sends a deterministic PayPal-Request-Id derived only from the order's
+    own id. PayPal documents PayPal-Request-Id as "recommended for all POST
+    and PUT calls" precisely so a network timeout/5xx can be safely retried
+    with the same key and get back the original result instead of PayPal
+    doing the action again - without it, a retried authorize call after a
+    lost response risks a second real authorization for the same order.
+    Keying on order_id (not a random value) means every retry of "authorize
+    this order" - whoever makes it, whenever - sends the same key.
+    """
     client = get_paypal_client()
     try:
         result = client.orders.authorize_order({
             "id": order_id,
             "prefer": RETURN_REPRESENTATION,
+            "paypal_request_id": f"agentauth-authorize-{order_id}",
         })
     except PAYPAL_SDK_EXCEPTIONS as exc:
         raise translate_sdk_error(exc, "PayPal authorization failed") from exc
@@ -160,11 +171,23 @@ async def capture_authorization(authorization_id: str, mock_response: str | None
     PayPal-Mock-Response header the SDK exposes as `paypal_mock_response` -
     this is PayPal's own supported QA mechanism, not anything fabricated by
     this codebase. None (the default, used by every normal transaction)
-    requests nothing special and captures for real, exactly as before."""
+    requests nothing special and captures for real, exactly as before.
+
+    Also sends a deterministic PayPal-Request-Id keyed on authorization_id.
+    PayPal's own docs call this out explicitly for /capture specifically:
+    "An HTTP 5xx or network timeout from an /execute or /capture endpoint
+    could have resulted in the creation of a PayPal transaction. To be
+    informed of the transaction, it is recommended that you repeat the same
+    /execute or /capture call at least once, with the same PayPal-Request-Id
+    HTTP header as before." Without this header a lost response after a real
+    capture went through could, on retry, actually charge the buyer twice
+    for the same authorization instead of returning the original capture.
+    """
     client = get_paypal_client()
     options = {
         "authorization_id": authorization_id,
         "prefer": RETURN_REPRESENTATION,
+        "paypal_request_id": f"agentauth-capture-{authorization_id}",
     }
     if mock_response:
         options["paypal_mock_response"] = json.dumps({"mock_application_codes": mock_response})
@@ -184,11 +207,17 @@ async def capture_authorization(authorization_id: str, mock_response: str | None
 
 
 async def void_authorization(authorization_id: str) -> dict:
+    # Voiding doesn't move money and PayPal's own authorization-state rules
+    # already make a repeat void a no-op/error rather than a duplicate
+    # side effect, so this is lower risk than capture/authorize. Still send
+    # a deterministic key, matching PayPal's general "recommended for all
+    # POST and PUT calls" guidance and this file's other mutating calls.
     client = get_paypal_client()
     try:
         result = client.payments.void_payment({
             "authorization_id": authorization_id,
             "prefer": RETURN_REPRESENTATION,
+            "paypal_request_id": f"agentauth-void-{authorization_id}",
         })
     except PAYPAL_SDK_EXCEPTIONS as exc:
         raise translate_sdk_error(exc, "PayPal void failed") from exc
