@@ -249,3 +249,48 @@ async def test_capture_authorization_negative_test_surfaces_as_real_paypal_error
     err = exc_info.value
     assert err.status_code == 422
     assert err.detail["name"] == "UNPROCESSABLE_ENTITY"
+
+
+@pytest.mark.asyncio
+async def test_create_order_idempotency_key_is_deterministic_per_transaction(monkeypatch):
+    """The PayPal-Request-Id sent on the card-on-file (autonomous) path used
+    to end in a fresh uuid on every single call, which defeats the entire
+    point of an idempotency key: if the SDK's own built-in retry behavior
+    (see module docstring - it "owns auth, retries...") ever retried a
+    create_order call whose first attempt actually reached PayPal but whose
+    response we never saw, a random key would make PayPal treat the retry
+    as a brand new order instead of recognizing the duplicate - creating a
+    second real authorization hold with nothing in this app's own database
+    ever pointing at it. The key must depend only on the transaction id, so
+    the exact same call always sends the exact same key.
+    """
+    from paypalserversdk.models.payment_source import PaymentSource
+    from paypalserversdk.models.card_request import CardRequest
+
+    monkeypatch.setattr(
+        paypal_orders, "_card_payment_source",
+        lambda: PaymentSource(card=CardRequest(number="4111111111111111", expiry="2030-01", security_code="123")),
+    )
+    fake = FakeClient(order_responses={
+        "create_order": FakeApiResponse(Order.from_dictionary(ORDER_CREATED_WITH_AUTH)),
+    })
+    monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
+
+    for _ in range(3):
+        await paypal_orders.create_order(
+            amount=63.99, currency="USD", description="Test", return_url="https://x/return",
+            cancel_url="https://x/cancel", custom_id="tx_same_transaction",
+        )
+
+    keys = {options["paypal_request_id"] for _, options in fake.orders.calls}
+    assert keys == {"agentauth-order-tx_same_transaction"}, (
+        "every call for the same transaction must send the exact same idempotency key"
+    )
+
+    # And a different transaction must never collide with another one's key.
+    await paypal_orders.create_order(
+        amount=10.0, currency="USD", description="Test", return_url="https://x/return",
+        cancel_url="https://x/cancel", custom_id="tx_other_transaction",
+    )
+    all_keys = {options["paypal_request_id"] for _, options in fake.orders.calls}
+    assert all_keys == {"agentauth-order-tx_same_transaction", "agentauth-order-tx_other_transaction"}

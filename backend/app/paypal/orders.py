@@ -24,7 +24,6 @@ shopper to PayPal Sandbox to approve the order like a normal checkout.
 from __future__ import annotations
 
 import json
-import uuid
 from typing import Optional
 
 from paypalserversdk.models.card_request import CardRequest
@@ -101,9 +100,25 @@ async def create_order(amount: float, currency: str, description: str,
     # create-order-with-payment-source call, i.e. whenever we hand over a
     # card directly instead of waiting for buyer approval. Without it PayPal
     # rejects the request with PAYPAL_REQUEST_ID_REQUIRED.
+    #
+    # Deterministic, derived only from this transaction's own id - not a
+    # fresh uuid appended on every call. An idempotency key's entire job is
+    # letting PayPal recognize "I've already done this exact request" and
+    # hand back the original result instead of doing it again; a key that's
+    # different every time this function runs can never do that, no matter
+    # what calls it. That matters here specifically because the PayPal SDK
+    # this app uses "owns auth, retries, and typed error exceptions" (see
+    # module docstring) - i.e. it may itself retry on a network blip/timeout
+    # without this code ever knowing a retry happened. If the order actually
+    # reached PayPal on an earlier attempt whose response we never saw, a
+    # random key on the retry would create a second real authorization for
+    # the same purchase, with no way for our own database to ever learn
+    # that second hold exists. create_order is only ever invoked once per
+    # transaction in this codebase (see orchestrator.execute_payment), so
+    # the transaction id alone is a safe, sufficient, stable key.
     request_options = {"body": order_request, "prefer": RETURN_REPRESENTATION}
     if card_source:
-        request_options["paypal_request_id"] = f"agentauth-{custom_id}-{uuid.uuid4().hex[:12]}"
+        request_options["paypal_request_id"] = f"agentauth-order-{custom_id}"
 
     try:
         result = client.orders.create_order(request_options)
