@@ -244,21 +244,38 @@ async def resume_task(task_id: str, reply: str) -> None:
     turn was a clarifying question (or a check-in like "I found X instead,
     want it?") rather than a tool call. Appends the human's reply to the
     exact conversation that was paused and re-enters the same research loop,
-    so the model picks up with full context rather than starting over."""
+    so the model picks up with full context rather than starting over.
+
+    Runs fire-and-forget via asyncio.create_task from POST
+    /tasks/{id}/respond, which already rejects the request synchronously if
+    the transaction is not in NEEDS_INPUT at that moment. That leaves one
+    narrow window unprotected: two respond calls for the same task arriving
+    close enough together that both pass that same check before either one's
+    background task actually runs. _set_tx_state's own atomic re-check
+    still stops the loser from corrupting anything, but without catching
+    its InvalidTransition here, the loser would raise inside a task nothing
+    is awaiting - an unretrieved exception logged by asyncio for what is,
+    from the user's point of view, just a harmless duplicate submission.
+    """
     task = models.get_task(task_id)
     if not task:
         return
     agent = models.get_agent(task["agent_id"])
     tx = models.get_transaction_for_task(task_id)
     if not tx or tx["state"] != "NEEDS_INPUT":
-        raise AgentError("This task is not currently waiting for a reply.")
+        return
 
     tx_id = tx["id"]
     messages: list[dict] = json.loads(tx["conversation_state"] or "[]")
     messages.append({"role": "user", "content": reply})
 
-    _set_tx_state(tx_id, "NEEDS_INPUT", "RESEARCHING",
-                   pending_question=None, conversation_state=None)
+    try:
+        _set_tx_state(tx_id, "NEEDS_INPUT", "RESEARCHING",
+                       pending_question=None, conversation_state=None)
+    except InvalidTransition:
+        # Lost the race to another call already resuming this same task.
+        # That call owns the conversation now; nothing left to do here.
+        return
     models.update_task_status(task_id, "RESEARCHING")
     await emit("USER_REPLIED", reply, task_id=task_id, agent_id=agent["id"],
                 transaction_id=tx_id, payload={"message": reply})

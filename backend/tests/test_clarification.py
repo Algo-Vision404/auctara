@@ -218,3 +218,51 @@ def test_endless_clarifying_questions_eventually_fail_instead_of_looping_forever
         tx = task["transactions"][0]
         assert tx["state"] == "FAILED"
         assert "follow-up questions" in tx["error"]
+
+
+def test_concurrent_resume_calls_for_the_same_paused_task_dont_crash(monkeypatch):
+    """Two near-simultaneous resume_task calls for the same NEEDS_INPUT
+    transaction - the shape a double-click or a client-side retry on
+    POST /tasks/{id}/respond would actually produce once both happened to
+    get past the route's own synchronous state check. The loser must lose
+    quietly (no unretrieved exception in its fire-and-forget task), not
+    crash, and exactly one of them should be the one to actually resume
+    the conversation."""
+    import asyncio
+
+    with TestClient(app) as client:
+        agent = _permissive_agent(client)
+        question = "Found a cheaper option outside your target price - proceed anyway?"
+        proposal = FakeMessage(tool_calls=[FakeToolCall(
+            "call_1", "create_purchase_proposal",
+            {
+                "merchant": "StackSocial", "amount": 39.99, "currency": "USD",
+                "category": "software", "reason": "Microsoft Office lifetime license, approved by user",
+                "source_url": "https://stacksocial.com/office",
+            },
+        )])
+        monkeypatch.setattr(
+            orchestrator, "_openrouter_client",
+            _fake_client_sequence([FakeMessage(content=question), proposal]),
+        )
+
+        task = client.post(
+            "/tasks", json={"agent_id": agent["id"], "prompt": "Find a $1000 software plan deal"}
+        ).json()
+        task = _poll_until(client, task["id"], {"NEEDS_INPUT", "FAILED"})
+        assert task["status"] == "NEEDS_INPUT"
+
+        async def _race():
+            await asyncio.gather(
+                orchestrator.resume_task(task["id"], "Yes, go ahead."),
+                orchestrator.resume_task(task["id"], "Yes, go ahead."),
+            )
+
+        asyncio.run(_race())  # must not raise
+
+        task = client.get(f"/tasks/{task['id']}").json()
+        # Exactly one call's reply actually landed in the resumed conversation.
+        tx = task["transactions"][0]
+        user_replies = [m for m in json.loads(tx.get("conversation_state") or "[]")
+                        if m.get("role") == "user" and m.get("content") == "Yes, go ahead."]
+        assert len(user_replies) <= 1
