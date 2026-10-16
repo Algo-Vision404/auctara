@@ -30,7 +30,12 @@ import logging
 
 from openai import AsyncOpenAI
 
-from app.agent.llm_errors import NOT_CONFIGURED_MESSAGE, call_llm_with_retry, humanize_llm_error
+from app.agent.llm_errors import (
+    NOT_CONFIGURED_MESSAGE,
+    call_llm_with_retry,
+    humanize_llm_error,
+    require_first_choice,
+)
 from app.config import get_settings
 
 logger = logging.getLogger("agentauth.policy_drafting")
@@ -253,8 +258,8 @@ async def draft_policy_step(conversation: list[dict]) -> dict:
             ),
         })
 
-    try:
-        response = await call_llm_with_retry(lambda: client.chat.completions.create(
+    async def _make_call():
+        response = await client.chat.completions.create(
             model=settings.openrouter_model,
             messages=messages,
             temperature=0.1,
@@ -274,12 +279,21 @@ async def draft_policy_step(conversation: list[dict]) -> dict:
             # before it ever emits the actual JSON object. This call only
             # ever needs a small structured result, never visible reasoning.
             extra_body={"reasoning": {"enabled": False}},
-        ))
+        )
+        # See require_first_choice's docstring: validated inside the
+        # retried callable so a 200 OK with no actual choice in it (seen
+        # from free-tier models under load) is retried like any other
+        # transient failure instead of crashing this request with a raw
+        # TypeError on response.choices[0].
+        return require_first_choice(response)
+
+    try:
+        choice = await call_llm_with_retry(_make_call)
     except Exception as exc:  # noqa: BLE001
         logger.exception("AI policy drafting request failed")
         raise PolicyDraftError(humanize_llm_error(exc)) from exc
 
-    content = response.choices[0].message.content
+    content = choice.message.content
     try:
         parsed = json.loads(content)
     except (json.JSONDecodeError, TypeError) as exc:

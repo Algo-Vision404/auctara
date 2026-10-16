@@ -62,19 +62,45 @@ def _is_exhausted_daily_quota(exc: Exception) -> bool:
     return "daily" in limit_source.lower() or "per-day" in message.lower()
 
 
+class EmptyLLMResponseError(RuntimeError):
+    """Raised when a provider call returns a normal 200 OK with no usable
+    choice in it - response.choices is None or an empty list. Observed from
+    OpenRouter's free-tier models under provider-side load: no exception,
+    no error status, just nothing to read. Every call site used to index
+    response.choices[0] directly, which turned this into an unhandled
+    TypeError/IndexError - a crash that looked like a bug in this app's own
+    code, for a problem that was really just the provider having a bad
+    moment and worth exactly the same short retry as a 429 or a 5xx."""
+
+
 def is_transient_llm_error(exc: Exception) -> bool:
     """True for the class of error worth a short automatic retry - a brief
-    rate-limit burst, a 5xx from the upstream AI provider, or a
-    dropped/timed out connection - as opposed to an error that will never
-    succeed no matter how many times it's retried (bad credentials, no
-    credit, a bad request, or a *daily* quota that's already hit zero and
-    won't reset for hours)."""
+    rate-limit burst, a 5xx from the upstream AI provider, a dropped/timed
+    out connection, or a 200 OK with no actual choice in it - as opposed to
+    an error that will never succeed no matter how many times it's retried
+    (bad credentials, no credit, a bad request, or a *daily* quota that's
+    already hit zero and won't reset for hours)."""
+    if isinstance(exc, EmptyLLMResponseError):
+        return True
     if _is_exhausted_daily_quota(exc):
         return False
     if isinstance(exc, APIStatusError):
         status = exc.status_code or 0
         return status in _TRANSIENT_STATUS_CODES or status >= 500
     return isinstance(exc, (APIConnectionError, APITimeoutError))
+
+
+def require_first_choice(response):
+    """Return response.choices[0], or raise EmptyLLMResponseError instead
+    of letting a bare TypeError/IndexError escape when the provider sent
+    back no choices at all. Call this from inside the same callable passed
+    to call_llm_with_retry (not after it returns) so a response that came
+    back empty actually triggers a fresh retried request, not just a
+    second, equally useless look at the same empty response."""
+    choices = getattr(response, "choices", None)
+    if not choices:
+        raise EmptyLLMResponseError("The AI provider returned a response with no choices in it.")
+    return choices[0]
 
 
 async def call_llm_with_retry(

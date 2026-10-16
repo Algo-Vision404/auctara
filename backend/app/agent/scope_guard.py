@@ -34,7 +34,7 @@ import json
 import logging
 from dataclasses import dataclass
 
-from app.agent.llm_errors import call_llm_with_retry
+from app.agent.llm_errors import call_llm_with_retry, require_first_choice
 
 logger = logging.getLogger("agentauth.scope_guard")
 
@@ -105,26 +105,37 @@ async def check_scope(
     )
     try:
         client = client_factory()
-        response = await call_llm_with_retry(lambda: client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Agent purpose: {agent_purpose}\n"
-                        f"Agent standing directive: {agent_directive}\n\n"
-                        f"Finished proposal to review:\n{proposal_summary}"
-                    ),
-                },
-            ],
-            tools=_TOOL_SCHEMA,
-            tool_choice="required",
-            temperature=0,
-            max_tokens=200,
-            extra_body={"reasoning": {"enabled": False}},
-        ))
-        call = response.choices[0].message.tool_calls[0]
+
+        async def _make_call():
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Agent purpose: {agent_purpose}\n"
+                            f"Agent standing directive: {agent_directive}\n\n"
+                            f"Finished proposal to review:\n{proposal_summary}"
+                        ),
+                    },
+                ],
+                tools=_TOOL_SCHEMA,
+                tool_choice="required",
+                temperature=0,
+                max_tokens=200,
+                extra_body={"reasoning": {"enabled": False}},
+            )
+            # See require_first_choice's docstring: validated here, inside
+            # the retried callable, so a 200 OK with no actual choice in it
+            # (seen from free-tier models under load) gets retried like any
+            # other transient failure instead of crashing this check - which
+            # would otherwise be indistinguishable from the agent itself
+            # being out of scope, since both paths currently fail closed.
+            return require_first_choice(response)
+
+        choice = await call_llm_with_retry(_make_call)
+        call = choice.message.tool_calls[0]
         args = json.loads(call.function.arguments or "{}")
         in_scope = bool(args.get("in_scope"))
         verdict_reason = str(args.get("reason") or "").strip() or (

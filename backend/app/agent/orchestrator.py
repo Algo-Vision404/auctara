@@ -13,7 +13,12 @@ from typing import Any, Optional
 
 from openai import AsyncOpenAI
 
-from app.agent.llm_errors import NOT_CONFIGURED_MESSAGE, call_llm_with_retry, humanize_llm_error
+from app.agent.llm_errors import (
+    NOT_CONFIGURED_MESSAGE,
+    call_llm_with_retry,
+    humanize_llm_error,
+    require_first_choice,
+)
 from app.agent.prompts import SYSTEM_PROMPT, build_task_prompt
 from app.agent.scope_guard import check_scope
 from app.agent.tools import build_terminal_tool_schemas, build_tool_schemas
@@ -544,7 +549,7 @@ async def _sanitize_human_message(client: AsyncOpenAI, settings, raw: str) -> st
             max_tokens=200,
             extra_body={"reasoning": {"enabled": False}},
         )
-        cleaned = (response.choices[0].message.content or "").strip()
+        cleaned = (require_first_choice(response).message.content or "").strip()
         # Sanity check: a real cleanup should be short. If the model
         # couldn't follow even this instruction, better to show the human
         # the original raw text than a second layer of garbage.
@@ -665,8 +670,8 @@ async def _run_research_loop(
                     "ONE short final question for the human and nothing else."
                 ),
             })
-        try:
-            response = await call_llm_with_retry(lambda: client.chat.completions.create(
+        async def _make_call():
+            response = await client.chat.completions.create(
                 model=settings.openrouter_model,
                 messages=messages,
                 tools=terminal_tool_schemas if is_final_call else tool_schemas,
@@ -682,13 +687,22 @@ async def _run_research_loop(
                 # clean message, so turn it off everywhere; models that don't
                 # support the parameter simply ignore it.
                 extra_body={"reasoning": {"enabled": False}},
-            ))
+            )
+            # Validated here, inside the retried callable, not after
+            # call_llm_with_retry returns: some free OpenRouter models
+            # occasionally send back a 200 OK with no choices at all (no
+            # exception, nothing to indicate a problem). Checking it here
+            # means that case gets exactly the same retried-with-backoff
+            # treatment as a 429/5xx, instead of crashing this loop with a
+            # raw TypeError on response.choices[0].
+            return require_first_choice(response)
+
+        try:
+            choice = await call_llm_with_retry(_make_call)
         except Exception as exc:  # noqa: BLE001
             logger.exception("OpenRouter chat.completions.create failed")
             raise AgentError(humanize_llm_error(exc)) from exc
 
-
-        choice = response.choices[0]
         msg = choice.message
         messages.append(msg.model_dump(exclude_none=True))
 
