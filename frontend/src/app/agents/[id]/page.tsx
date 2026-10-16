@@ -11,7 +11,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { BudgetBar } from "@/components/agents/BudgetBar";
 import { api, ApiError } from "@/lib/api";
 import { Agent } from "@/lib/types";
-import { money, titleCase, shortTime } from "@/lib/format";
+import { money, titleCase, shortTime, friendlyTaskStatus } from "@/lib/format";
 import {
   Bot, ShieldCheck, Ban, Send, ArrowUpRight, ReceiptText, UserX, UserCheck, Trash2,
   FlaskConical, ChevronDown, ChevronUp,
@@ -307,7 +307,7 @@ export default function AgentDetailPage() {
                     className="flex items-center justify-between rounded-lg border border-[var(--color-border)] px-3 py-2.5 hover:bg-[var(--color-surface-2)]"
                   >
                     <div>
-                      <p className="text-sm font-medium">{t.merchant || "Researching…"}</p>
+                      <p className="text-sm font-medium">{t.merchant || friendlyTaskStatus(t.state)}</p>
                       <p className="text-xs text-[var(--color-text-muted)]">{shortTime(t.created_at)}</p>
                     </div>
                     <div className="flex items-center gap-2">

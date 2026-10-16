@@ -6,6 +6,7 @@ import { TopBar } from "@/components/nav/TopBar";
 import { ActivityFeed } from "@/components/activity/ActivityFeed";
 import { api, ApiError } from "@/lib/api";
 import { Task } from "@/lib/types";
+import { friendlyTaskStatus } from "@/lib/format";
 import { Loader2 } from "lucide-react";
 
 export default function TaskPage() {
@@ -62,7 +63,7 @@ export default function TaskPage() {
             <p className="text-sm">{task.prompt}</p>
             <div className="flex items-center gap-2 pt-2 text-sm text-[var(--color-text-secondary)]">
               <Loader2 size={14} className="animate-spin" />
-              Status: {task.status}
+              {friendlyTaskStatus(task.status)}
             </div>
           </div>
         )}
