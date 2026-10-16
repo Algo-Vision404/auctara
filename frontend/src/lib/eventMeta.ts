@@ -20,6 +20,7 @@ import {
   XCircle,
   MessageCircleQuestion,
   MessageCircle,
+  ShieldQuestion,
   type LucideIcon,
 } from "lucide-react";
 
@@ -67,6 +68,16 @@ const META: Record<string, EventMeta> = {
   POLICY_EVALUATED: { icon: Shield, tone: "info", label: "Policy evaluated" },
   POLICY_ALLOWED: { icon: CircleCheck, tone: "success", label: "Policy allowed" },
   POLICY_BLOCKED: { icon: ShieldX, tone: "danger", label: "Policy blocked" },
+  // A second, independent model call - fresh context, no access to the
+  // research loop's own conversation - judging the finished proposal
+  // against the agent's own stated purpose/directive. Deliberately its own
+  // icon/tone, distinct from POLICY_EVALUATED (the deterministic
+  // budget/category/velocity engine): this is a different guardrail,
+  // answering a different question ("does this serve what the agent was
+  // actually delegated to do", not "is this within its spending rules"),
+  // and it can fire on a transaction that policy alone would have allowed
+  // outright.
+  SCOPE_CHECKED: { icon: ShieldQuestion, tone: "info", label: "Scope checked" },
   APPROVAL_REQUESTED: { icon: Clock3, tone: "warning", label: "Approval requested" },
   APPROVAL_GRANTED: { icon: BadgeCheck, tone: "success", label: "Approval granted" },
   APPROVAL_REJECTED: { icon: ShieldX, tone: "danger", label: "Approval rejected" },

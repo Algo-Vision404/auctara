@@ -35,3 +35,33 @@ def clean_db(tmp_path, monkeypatch):
     yield
 
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _scope_guard_defaults_to_in_scope(monkeypatch):
+    """The independent scope guard (app.agent.scope_guard.check_scope) makes
+    its own real OpenRouter call, separate from whatever a test already
+    stubbed out for the main research loop. OPENROUTER_API_KEY is "" for
+    every test (see clean_db above), so without this, every test that
+    doesn't specifically care about the scope guard would see it fail
+    closed (ok=False) on every single transaction, silently turning every
+    would-be ALLOW into APPROVAL_REQUIRED for a reason that has nothing to
+    do with what that test is actually exercising - and tests that record/
+    assert on the exact number of LLM calls made would also see one extra
+    call that was never theirs to account for.
+
+    Default every test to "the independent scope check said yes" so the
+    pre-existing ALLOW/APPROVAL_REQUIRED/BLOCK behavior is unaffected by
+    this guard's existence. A test that specifically wants to exercise the
+    scope guard's own disagreement or fail-closed behavior can override
+    this after the fact with its own monkeypatch.setattr(orchestrator,
+    "check_scope", ...) call - autouse fixtures apply before the test body
+    runs, so a later call in the test itself simply takes precedence.
+    """
+    import app.agent.orchestrator as orchestrator
+    from app.agent.scope_guard import ScopeVerdict
+
+    async def _always_in_scope(*args, **kwargs):
+        return ScopeVerdict(ok=True, in_scope=True, reason="test default: in scope")
+
+    monkeypatch.setattr(orchestrator, "check_scope", _always_in_scope)

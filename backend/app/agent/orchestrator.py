@@ -15,6 +15,7 @@ from openai import AsyncOpenAI
 
 from app.agent.llm_errors import NOT_CONFIGURED_MESSAGE, call_llm_with_retry, humanize_llm_error
 from app.agent.prompts import SYSTEM_PROMPT, build_task_prompt
+from app.agent.scope_guard import check_scope
 from app.agent.tools import build_terminal_tool_schemas, build_tool_schemas
 from app.audit.integrity import record_audit
 from app.config import get_settings
@@ -389,6 +390,49 @@ async def _continue_research(agent: dict, task: dict, tx_id: str, messages: list
             product_name=proposal.get("product_name") or "",
             reason=proposal.get("reason") or "",
         )
+
+        # Independent scope check, separate from everything policy_engine
+        # just decided: budget/category/velocity answer "is this transaction
+        # allowed under this agent's spending rules", never "does this
+        # transaction actually serve what this agent was delegated to do".
+        # That question's only prior guard was the same research-loop model
+        # self-reporting via decline_out_of_scope_task - this is the
+        # external, independent check behind it. Skipped when policy already
+        # landed on BLOCK: that is already the strictest possible outcome,
+        # so there is nothing a scope opinion could usefully add.
+        if decision["decision"] != "BLOCK":
+            scope_verdict = await check_scope(
+                _openrouter_client, get_settings().openrouter_model,
+                agent_purpose=agent["purpose"], agent_directive=agent["directive"],
+                merchant=proposal.get("merchant") or "", product_name=proposal.get("product_name") or "",
+                category=proposal["category"], amount=proposal["amount"], currency=proposal["currency"],
+                proposal_reason=proposal.get("reason") or "",
+            )
+            await emit(
+                "SCOPE_CHECKED",
+                scope_verdict.reason,
+                task_id=task_id, agent_id=agent["id"], transaction_id=tx_id,
+                payload={"ok": scope_verdict.ok, "in_scope": scope_verdict.in_scope, "reason": scope_verdict.reason},
+            )
+            # Fail closed: a check that could not run is treated exactly
+            # like one that disagreed, never as a silent pass. An ALLOW
+            # moves to APPROVAL_REQUIRED instead of executing unattended -
+            # the independent check (or the inability to run it) is reason
+            # enough for a human to look before any money moves, even
+            # though the dollar amount itself was within autonomous
+            # authority. An APPROVAL_REQUIRED stays APPROVAL_REQUIRED either
+            # way (a human was already going to review it), but still picks
+            # up the scope note so the reason a human sees is complete.
+            if not scope_verdict.in_scope:
+                decision = {
+                    **decision,
+                    "decision": "APPROVAL_REQUIRED" if decision["decision"] == "ALLOW" else decision["decision"],
+                    "reason": (
+                        f"{decision['reason']} However, an independent scope check flagged this "
+                        f"proposal for human review: {scope_verdict.reason}"
+                    ),
+                }
+
 
         models.update_transaction(
             tx_id,
