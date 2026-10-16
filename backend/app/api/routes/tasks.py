@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.agent.orchestrator import emit, resume_task, run_task
+from app.config import is_trusted_frontend_origin
 from app.database import models
 from app.paypal.orders import NEGATIVE_TEST_CODES
 from app.streaming.events import sse_stream
@@ -43,16 +44,32 @@ def _browser_origin(request: Request) -> str | None:
     """Best-effort real origin of the browser that called this API, so PayPal's
     redirect back after checkout lands on whatever host/port the user is
     actually viewing the app from (localhost, a LAN IP, or a preview domain),
-    never a hardcoded FRONTEND_URL that may not match in this environment."""
+    never a hardcoded FRONTEND_URL that may not match in this environment.
+
+    The Origin/Referer headers are entirely attacker-controlled - anyone can
+    POST /tasks with Origin: https://evil.example, no browser or CORS
+    involved at all. This value eventually becomes the literal return_url/
+    cancel_url PayPal redirects the user's browser to immediately after
+    they approve a REAL payment (see execute_payment), so trusting it
+    unconditionally is an open redirect sitting right after a real money
+    movement - handing an attacker-chosen domain the transaction id, and a
+    ready-made phishing continuation, the instant checkout completes.
+    Only ever return a value that's already trusted for CORS (the same
+    allowlist/regex from app.config); anything else falls back to
+    settings.frontend_url, exactly like a request with no Origin/Referer
+    at all already did before this existed.
+    """
+    candidate = None
     origin = request.headers.get("origin")
     if origin:
-        return origin.rstrip("/")
-    referer = request.headers.get("referer")
-    if referer:
-        parsed = urlparse(referer)
-        if parsed.scheme and parsed.netloc:
-            return f"{parsed.scheme}://{parsed.netloc}"
-    return None
+        candidate = origin.rstrip("/")
+    else:
+        referer = request.headers.get("referer")
+        if referer:
+            parsed = urlparse(referer)
+            if parsed.scheme and parsed.netloc:
+                candidate = f"{parsed.scheme}://{parsed.netloc}"
+    return candidate if is_trusted_frontend_origin(candidate) else None
 
 
 @router.get("/tasks/negative-test-options")

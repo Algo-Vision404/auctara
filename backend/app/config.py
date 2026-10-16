@@ -6,13 +6,33 @@ everything here is overridable via the environment / .env file.
 from __future__ import annotations
 
 import os
+import re
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# The one place "which frontend origins does this backend actually trust"
+# is defined, so CORS (app/main.py) and the PayPal return/cancel URL a
+# task's browser-reported origin is allowed to influence (app/api/routes/
+# tasks.py's _browser_origin) can never drift out of sync with each other.
+# fullmatch, not match/search: an unanchored-at-the-end pattern would let
+# something like "https://x.e2b.app.evil.example" slip through as a
+# "contains an allowed substring" match.
+TRUSTED_ORIGIN_REGEX = re.compile(r"https://.*\.e2b\.app")
+
+
+def is_trusted_frontend_origin(origin: str | None) -> bool:
+    if not origin:
+        return False
+    settings = get_settings()
+    if origin in settings.trusted_frontend_origins:
+        return True
+    return bool(TRUSTED_ORIGIN_REGEX.fullmatch(origin))
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
 
     # PayPal
     paypal_client_id: str = ""
@@ -73,6 +93,10 @@ class Settings(BaseSettings):
         if url.startswith("sqlite:///"):
             return url[len("sqlite:///"):]
         return "./agentauth.db"
+
+    @property
+    def trusted_frontend_origins(self) -> set[str]:
+        return {self.frontend_url, "http://localhost:3000", "http://127.0.0.1:3000"}
 
 
 @lru_cache
