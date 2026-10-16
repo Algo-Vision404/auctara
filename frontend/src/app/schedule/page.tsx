@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { TopBar } from "@/components/nav/TopBar";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { api, ApiError } from "@/lib/api";
 import { Agent, Recurrence, ScheduledTask, ScheduleRun } from "@/lib/types";
 import { fullDateTime, money, titleCase } from "@/lib/format";
@@ -37,6 +38,7 @@ function toLocalInputValue(d: Date): string {
 
 export default function SchedulePage() {
   const router = useRouter();
+  const confirm = useConfirm();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [schedules, setSchedules] = useState<ScheduledTask[]>([]);
   const [runsBySchedule, setRunsBySchedule] = useState<Record<string, ScheduleRun[]>>({});
@@ -139,7 +141,13 @@ export default function SchedulePage() {
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm("Permanently delete this scheduled task? This cannot be undone.")) return;
+    const ok = await confirm({
+      title: "Permanently delete this scheduled task?",
+      message: "This cannot be undone.",
+      confirmLabel: "Delete permanently",
+      variant: "danger",
+    });
+    if (!ok) return;
     setActingOn(id);
     try {
       await api.deleteSchedule(id);

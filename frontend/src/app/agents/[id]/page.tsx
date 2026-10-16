@@ -7,6 +7,7 @@ import { TopBar } from "@/components/nav/TopBar";
 import { Button } from "@/components/ui/Button";
 import { Badge, stateTone } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { BudgetBar } from "@/components/agents/BudgetBar";
 import { api, ApiError } from "@/lib/api";
 import { Agent } from "@/lib/types";
@@ -19,6 +20,7 @@ import {
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const confirm = useConfirm();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
@@ -83,14 +85,15 @@ export default function AgentDetailPage() {
 
   async function handleRetire() {
     if (!agent) return;
-    if (
-      !window.confirm(
-        `Retire ${agent.name}? It will stop accepting new tasks immediately, and anything it has in ` +
-          "progress right now will be cancelled. Its full history stays exactly as it is, and you can " +
-          "reactivate it later."
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: `Retire ${agent.name}?`,
+      message:
+        "It will stop accepting new tasks immediately, and anything it has in progress right now will " +
+        "be cancelled. Its full history stays exactly as it is, and you can reactivate it later.",
+      confirmLabel: "Retire",
+      variant: "danger",
+    });
+    if (!ok) return;
     setRetiring(true);
     setActionError(null);
     try {
@@ -105,13 +108,15 @@ export default function AgentDetailPage() {
 
   async function handleReactivate() {
     if (!agent) return;
-    if (
-      !window.confirm(
-        `Reactivate ${agent.name}? It will be able to accept new tasks again. Anything that was ` +
-          "cancelled while it was retired stays cancelled \u2014 recreate anything you want running again."
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: `Reactivate ${agent.name}?`,
+      message:
+        "It will be able to accept new tasks again. Anything that was cancelled while it was retired " +
+        "stays cancelled \u2014 recreate anything you want running again.",
+      confirmLabel: "Reactivate",
+      variant: "primary",
+    });
+    if (!ok) return;
     setReactivating(true);
     setActionError(null);
     try {
@@ -126,14 +131,16 @@ export default function AgentDetailPage() {
 
   async function handleDelete() {
     if (!agent) return;
-    if (
-      !window.confirm(
-        `Permanently delete ${agent.name}? Everything it has in progress will be cancelled, and the ` +
-          "agent, its policy, tasks, and transactions will be erased. This cannot be undone. " +
-          "(Its audit trail entries are kept permanently, as with every agent.)"
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: `Permanently delete ${agent.name}?`,
+      message:
+        "Everything it has in progress will be cancelled, and the agent, its policy, tasks, and " +
+        "transactions will be erased. This cannot be undone. (Its audit trail entries are kept " +
+        "permanently, as with every agent.)",
+      confirmLabel: "Delete permanently",
+      variant: "danger",
+    });
+    if (!ok) return;
     setDeleting(true);
     setActionError(null);
     try {
