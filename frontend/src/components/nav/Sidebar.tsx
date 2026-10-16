@@ -13,7 +13,6 @@ import {
   ShieldCheck,
   ScrollText,
   Settings2,
-  ShieldHalf,
   Menu,
   X,
 } from "lucide-react";
@@ -71,6 +70,30 @@ function Footer() {
   );
 }
 
+// A custom mark instead of a stock shield/lock/checkmark glyph - every
+// one of those reads as generic "security product" clip art the instant
+// you've seen it on a hundred other dashboards. This is a small abstract
+// scene instead: a rail with a deliberate gap in it, and an arrow rising
+// up through that gap. That's literally what this product does - an
+// agent's action (the arrow) passing through a checkpoint (the rail) that
+// only lets it through on the terms you set - so the mark means something
+// specific to AgentAuth rather than "trust us, we're secure."
+function BrandMark({ size = 19 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3.5 15.5H9" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+      <path d="M15 15.5H20.5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+      <path
+        d="M7 16L12 6L17 16"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function Brand() {
   return (
     <Link href="/" className="mb-6 flex items-center gap-2.5 px-2">
@@ -78,7 +101,7 @@ function Brand() {
         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--color-accent)] text-[var(--color-accent-ink)]"
         style={{ boxShadow: "0 3px 0 0 var(--tactile-depth)" }}
       >
-        <ShieldHalf size={19} strokeWidth={2.4} />
+        <BrandMark size={19} />
       </div>
       <div className="leading-tight">
         <div className="text-[15px] font-semibold tracking-tight">AgentAuth</div>

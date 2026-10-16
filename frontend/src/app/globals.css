@@ -218,11 +218,39 @@ body {
   animation: enter-up 220ms ease both;
 }
 
+/* An always-on flat gray bar is the one piece of a page that never got a
+   design pass - the default browser affordance with a color swapped in.
+   This stays fully invisible at rest and fades in as a slim floating
+   capsule only once you actually hover or scroll the container, the same
+   restraint most considered apps (Linear, Notion, Vercel's own docs)
+   apply to secondary chrome: content first, chrome only when it's useful. */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 150ms ease;
+}
+.scrollbar-thin:hover,
+.scrollbar-thin:focus-within {
+  scrollbar-color: var(--color-text-muted) transparent;
+}
 .scrollbar-thin::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 8px;
+  background-color: transparent;
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  transition: background-color 150ms ease;
+}
+.scrollbar-thin:hover::-webkit-scrollbar-thumb,
+.scrollbar-thin:focus-within::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-text-muted) !important;
 }
