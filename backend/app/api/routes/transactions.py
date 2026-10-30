@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.agent.orchestrator import (
     AgentError,
     approve_transaction,
+    check_paypal_order_progress,
     continue_after_paypal_approval,
     reject_transaction,
 )
@@ -69,5 +70,18 @@ async def reject(tx_id: str, req: RejectRequest | None = None):
 async def paypal_continue(tx_id: str):
     try:
         return await continue_after_paypal_approval(tx_id)
+    except AgentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/transactions/{tx_id}/paypal/check")
+async def paypal_check(tx_id: str):
+    """Polled repeatedly by the frontend while a transaction waits in
+    VERIFYING for the buyer to approve at PayPal, so the original app tab
+    can notice completion on its own - see check_paypal_order_progress's
+    docstring for why this has to be a distinct, always-safe-to-call
+    endpoint rather than just reusing /paypal/continue for this."""
+    try:
+        return await check_paypal_order_progress(tx_id)
     except AgentError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

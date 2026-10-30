@@ -13,6 +13,14 @@ On every poll tick this:
      - checking PayPal for what actually happened rather than assuming
      the worst - instead of leaving them (and the budget they reserved)
      stuck forever if the buyer's redirect back never arrives.
+  3. Finds transactions orphaned by a server crash/restart/deploy while a
+     background research/propose/policy coroutine was the only thing that
+     could ever move them forward (see
+     Settings.orphaned_task_timeout_minutes and
+     orchestrator.ORPHANABLE_STATES), and fails each one cleanly - a
+     dead process's in-memory work can never be resumed, so the only
+     honest outcome is an explicit failure instead of leaving it stuck
+     forever with no explanation.
 
 Runs either in-process (default, convenient for local/dev and this sandbox,
 controlled by Settings.run_scheduler_inprocess) or as a standalone process
@@ -23,10 +31,15 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app.agent.orchestrator import emit, reconcile_stale_verifying_transactions, run_task
+from app.agent.orchestrator import (
+    emit,
+    reconcile_orphaned_transactions,
+    reconcile_stale_verifying_transactions,
+    run_task,
+)
 from app.database import models
 
-logger = logging.getLogger("agentauth.scheduler")
+logger = logging.getLogger("auctara.scheduler")
 
 POLL_INTERVAL_SECONDS = 15
 
@@ -99,6 +112,12 @@ async def scheduler_loop(stop_event: "asyncio.Event | None" = None) -> None:
                 logger.info("Reconciled %d stale VERIFYING transaction(s).", reconciled)
         except Exception:  # noqa: BLE001
             logger.exception("Stale-VERIFYING reconciliation tick failed")
+        try:
+            orphaned = await reconcile_orphaned_transactions()
+            if orphaned:
+                logger.info("Reconciled %d orphaned transaction(s) stuck with no activity.", orphaned)
+        except Exception:  # noqa: BLE001
+            logger.exception("Orphaned-transaction reconciliation tick failed")
         try:
             if stop_event:
                 await asyncio.wait_for(stop_event.wait(), timeout=POLL_INTERVAL_SECONDS)

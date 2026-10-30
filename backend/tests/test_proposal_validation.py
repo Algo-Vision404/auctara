@@ -104,29 +104,32 @@ def _zero_amount_proposal(merchant="Baremetrics", amount=0.0):
 
 
 def test_zero_amount_proposal_is_rejected_and_never_reaches_paypal(monkeypatch):
-    """A stubborn $0.00 proposal that the model never corrects must end the
-    task in FAILED with a clear reason, never create a PayPal order, and
-    never report ALLOW (there is nothing real to allow)."""
+    """A stubborn $0.00 proposal that the model never corrects must pause
+    the task in NEEDS_INPUT asking the human for a more specific/real
+    result (not fail it outright and force a brand new task), and must
+    never create a PayPal order or report ALLOW (there is nothing real to
+    allow)."""
     with TestClient(app) as client:
         agent = _permissive_agent(client)
         # The model proposes $0.00 every single time, never self-correcting -
         # exercises both the tool bounce-back AND the eventual max-iterations
         # dead end, while proving no PayPal call is ever attempted.
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([_zero_amount_proposal()] * 10),
         )
 
         task = client.post(
             "/tasks", json={"agent_id": agent["id"], "prompt": "Find subscription analytics software"}
         ).json()
-        task = _poll_until(client, task["id"], {"FAILED", "COMPLETED", "BLOCKED"})
+        task = _poll_until(client, task["id"], {"FAILED", "COMPLETED", "BLOCKED", "NEEDS_INPUT"})
 
-        assert task["status"] == "FAILED"
+        assert task["status"] == "NEEDS_INPUT"
         tx = task["transactions"][0]
-        assert tx["state"] == "FAILED"
+        assert tx["state"] == "NEEDS_INPUT"
         assert tx["decision"] is None  # never reached policy evaluation
         assert tx["paypal_order_id"] is None  # never reached PayPal
+        assert tx["pending_question"]  # human gets an actual question, not silence
 
         event_types = [e["event_type"] for e in task["activity"]]
         assert "POLICY_EVALUATED" not in event_types
@@ -148,7 +151,7 @@ def test_agent_can_self_correct_after_zero_amount_is_rejected(monkeypatch):
             },
         )])
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([_zero_amount_proposal(), real_proposal]),
         )
 
@@ -167,16 +170,16 @@ def test_negative_amount_proposal_is_also_rejected(monkeypatch):
     with TestClient(app) as client:
         agent = _permissive_agent(client)
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([_zero_amount_proposal(amount=-10.0)] * 10),
         )
 
         task = client.post(
             "/tasks", json={"agent_id": agent["id"], "prompt": "Find subscription analytics software"}
         ).json()
-        task = _poll_until(client, task["id"], {"FAILED", "COMPLETED", "BLOCKED"})
+        task = _poll_until(client, task["id"], {"FAILED", "COMPLETED", "BLOCKED", "NEEDS_INPUT"})
 
-        assert task["status"] == "FAILED"
+        assert task["status"] == "NEEDS_INPUT"
         tx = task["transactions"][0]
         assert tx["paypal_order_id"] is None
 

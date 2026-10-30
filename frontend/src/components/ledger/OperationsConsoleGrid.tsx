@@ -478,7 +478,7 @@ export function OperationsConsoleGrid({
   }
 
   function exportCsv() {
-    gridRef.current?.api.exportDataAsCsv({ fileName: "agentauth-operations-console.csv" });
+    gridRef.current?.api.exportDataAsCsv({ fileName: "auctara-operations-console.csv" });
   }
 
   function toggleColumn(col: string) {

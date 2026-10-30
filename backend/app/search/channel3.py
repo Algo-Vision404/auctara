@@ -5,7 +5,7 @@ retailers and returns live price, availability, retailer, and imagery for
 each one. The procurement agent calls this FIRST for any shopping/purchase
 task, because it returns structured, trustworthy offer data directly,
 with no page-scraping needed, and that data flows straight into the purchase
-proposal AgentAuth's policy engine ultimately evaluates.
+proposal Auctara's policy engine ultimately evaluates.
 
 No fallback or fabricated data is ever returned here. If the API key is
 missing, the request fails, or Channel3 returns no candidates, a real
@@ -20,7 +20,7 @@ import httpx
 
 from app.config import get_settings
 
-logger = logging.getLogger("agentauth.channel3")
+logger = logging.getLogger("auctara.channel3")
 
 
 class Channel3Error(Exception):

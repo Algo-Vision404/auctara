@@ -34,7 +34,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // fetch", "NetworkError when attempting to fetch resource"): it's
     // noise to anyone but a developer, and this single message already
     // says exactly what the user needs to know.
-    throw new ApiError("Could not reach the AgentAuth backend. Is it running?", 0);
+    throw new ApiError("Could not reach the Auctara backend. Is it running?", 0);
   }
 
   if (!res.ok) {
@@ -67,7 +67,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ status: string; paypal_configured: boolean; openrouter_configured: boolean; paypal_environment: string; model: string }>("/health"),
+  health: () => request<{ status: string; paypal_configured: boolean; groq_configured: boolean; paypal_environment: string; model: string }>("/health"),
 
   dashboardSummary: () => request<DashboardSummary>("/dashboard/summary"),
 
@@ -115,6 +115,12 @@ export const api = {
   rejectTransaction: (id: string, reason?: string) =>
     request<Transaction>(`/transactions/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }),
   continuePaypal: (id: string) => request<Transaction>(`/transactions/${id}/paypal/continue`, { method: "POST" }),
+  // Safe to call repeatedly while waiting on PayPal buyer approval - never
+  // fails the transaction just because the buyer has not finished yet, it
+  // only ever advances it forward the moment PayPal reports real approval.
+  // See check_paypal_order_progress in the backend for why this has to be
+  // a separate endpoint from continuePaypal above.
+  checkPaypal: (id: string) => request<Transaction>(`/transactions/${id}/paypal/check`, { method: "POST" }),
 
   getPolicy: (agentId: string) => request<Policy>(`/policies/${agentId}`),
   // Deliberately excludes "categories": this endpoint only edits

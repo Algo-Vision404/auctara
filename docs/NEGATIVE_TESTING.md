@@ -1,6 +1,6 @@
 # Sandbox negative testing: proving the failure paths are real too
 
-AgentAuth's README makes a deliberate, strong claim: **zero mock data,
+Auctara's README makes a deliberate, strong claim: **zero mock data,
 ever** — every number on screen comes from a real operation, and a failure
 is always shown as a real failure, never swapped for a fake success.
 
@@ -15,11 +15,11 @@ a transaction refused, a transient PayPal service error). This can be shown
 live, for real, because PayPal's own sandbox has an official, documented
 mechanism for it.
 
-**2. AgentAuth's own price-variance check catching drift** between the
+**2. Auctara's own price-variance check catching drift** between the
 amount an agent proposed and the amount PayPal actually confirms
 (`app/guardrails/engine.py::evaluate_price_variance`), which then triggers
 a real `void_authorization` call. In every run of the real pipeline, the
-amount AgentAuth asks PayPal to authorize *is* the amount PayPal confirms —
+amount Auctara asks PayPal to authorize *is* the amount PayPal confirms —
 there is no step where it would organically drift, so this path cannot be
 triggered on demand without fabricating a mismatch, which is exactly what
 "zero mock data" rules out. This path is proven instead by an automated
@@ -32,7 +32,7 @@ not staged live.
 PayPal's sandbox supports a request header, `PayPal-Mock-Response`, that
 makes PayPal's **real** sandbox API genuinely return a **real**, documented
 error for that one call — this is PayPal's own supported QA mechanism, not
-anything AgentAuth fabricates:
+anything Auctara fabricates:
 
 - https://developer.paypal.com/tools/sandbox/negative-testing/request-headers/
 - https://developer.paypal.com/api/orders/v2/error-messages
@@ -44,7 +44,7 @@ calls, confirmed by reading the installed SDK's own source
 (`PaymentsController.capture_authorized_payment`,
 `OrdersController.create_order`).
 
-### What AgentAuth built on top of it
+### What Auctara built on top of it
 
 A task may optionally be created with `paypal_negative_test` set to one of
 three PayPal-documented codes (`app/paypal/orders.py:NEGATIVE_TEST_CODES`,
@@ -103,7 +103,7 @@ test card, `PAYMENT_VERIFIED` confirmed the real authorized amount, and
 the capture call correctly carried the `paypal_mock_response` option
 through to PayPal's real API — which rejected it with a real `403`
 because negative testing isn't enabled yet on this particular sandbox
-account. AgentAuth's own handling of that real rejection was exactly
+account. Auctara's own handling of that real rejection was exactly
 correct: clean `FAILED` state, real PayPal error detail preserved
 server-side, no fabricated outcome. This confirms every piece of the new
 code path is wired correctly end-to-end; the only remaining step is the

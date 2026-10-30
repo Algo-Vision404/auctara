@@ -19,7 +19,7 @@ def health():
         "status": "ok" if db_ok else "degraded",
         "database": "ok" if db_ok else "error",
         "paypal_configured": bool(settings.paypal_client_id and settings.paypal_client_secret),
-        "openrouter_configured": bool(settings.openrouter_api_key),
+        "groq_configured": bool(settings.groq_api_key),
         "paypal_environment": settings.paypal_environment,
-        "model": settings.openrouter_model,
+        "model": settings.groq_model,
     }

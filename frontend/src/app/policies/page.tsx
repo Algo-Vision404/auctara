@@ -267,7 +267,7 @@ function PolicyEditor({ agent }: { agent: Agent }) {
           <span className="font-mono-ui text-sm text-[var(--color-text-muted)]">%</span>
         </div>
         <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
-          How far PayPal&apos;s confirmed price may drift from the proposed price before AgentAuth voids the
+          How far PayPal&apos;s confirmed price may drift from the proposed price before Auctara voids the
           payment instead of capturing it.
         </p>
       </div>

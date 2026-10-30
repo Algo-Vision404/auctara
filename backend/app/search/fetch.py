@@ -14,7 +14,7 @@ import re
 import httpx
 from bs4 import BeautifulSoup
 
-logger = logging.getLogger("agentauth.fetch")
+logger = logging.getLogger("auctara.fetch")
 
 _BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

@@ -5,7 +5,7 @@ never be treated as a research failure that dead-ends the task into FAILED.
 Instead the task pauses in NEEDS_INPUT with its exact conversation
 preserved, a human replies via POST /tasks/{id}/respond, and the same loop
 resumes with full context - potentially all the way through to a real
-ALLOW/proposal, exercised end to end here with only the OpenRouter network
+ALLOW/proposal, exercised end to end here with only the Groq network
 call faked out.
 """
 from __future__ import annotations
@@ -50,7 +50,7 @@ class _SequentialCompletions:
     sequence and then repeating the last one - so it works whether the test
     pulls N messages via one continuous loop or across a pause/resume split
     into two separate _run_research_loop invocations (and therefore two
-    separate _openrouter_client() factory calls)."""
+    separate _groq_client() factory calls)."""
 
     def __init__(self, messages):
         self._messages = list(messages)
@@ -104,7 +104,7 @@ def test_clarifying_question_pauses_task_instead_of_failing(monkeypatch):
             "or should I keep searching?"
         )
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([FakeMessage(content=question)]),
         )
 
@@ -141,7 +141,7 @@ def test_replying_resumes_the_same_conversation_to_a_real_proposal(monkeypatch):
             },
         )])
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([FakeMessage(content=question), proposal]),
         )
 
@@ -180,7 +180,7 @@ def test_cannot_reply_to_a_task_that_is_not_waiting_for_input(monkeypatch):
                 "source_url": "https://notion.so/pricing",
             },
         )])
-        monkeypatch.setattr(orchestrator, "_openrouter_client", _fake_client_sequence([proposal]))
+        monkeypatch.setattr(orchestrator, "_groq_client", _fake_client_sequence([proposal]))
 
         task = client.post(
             "/tasks", json={"agent_id": agent["id"], "prompt": "Renew our project management software"}
@@ -198,7 +198,7 @@ def test_endless_clarifying_questions_eventually_fail_instead_of_looping_forever
     with TestClient(app) as client:
         agent = _permissive_agent(client)
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([FakeMessage(content="Could you clarify your budget again?")]),
         )
 
@@ -242,7 +242,7 @@ def test_concurrent_resume_calls_for_the_same_paused_task_dont_crash(monkeypatch
             },
         )])
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([FakeMessage(content=question), proposal]),
         )
 

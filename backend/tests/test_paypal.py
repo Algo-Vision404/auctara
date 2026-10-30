@@ -102,6 +102,14 @@ ORDER_CREATED_NO_AUTH = {
 }
 
 CAPTURE_RESPONSE = {"id": "CAPTURE789", "status": "COMPLETED", "amount": {"currency_code": "USD", "value": "63.99"}}
+CAPTURE_RESPONSE_WITH_BREAKDOWN = {
+    **CAPTURE_RESPONSE,
+    "seller_receivable_breakdown": {
+        "gross_amount": {"currency_code": "USD", "value": "63.99"},
+        "paypal_fee": {"currency_code": "USD", "value": "2.15"},
+        "net_amount": {"currency_code": "USD", "value": "61.84"},
+    },
+}
 
 
 @pytest.mark.asyncio
@@ -151,6 +159,32 @@ async def test_capture_authorization(monkeypatch):
     assert result["capture_id"] == "CAPTURE789"
     assert result["status"] == "COMPLETED"
     assert result["amount"] == 63.99
+    # No seller_receivable_breakdown in this fixture, so these should be
+    # absent rather than crashing or silently defaulting to 0 - a capture
+    # genuinely has no fee/net figures to show in that case.
+    assert result["paypal_fee"] is None
+    assert result["net_amount"] is None
+
+
+@pytest.mark.asyncio
+async def test_capture_authorization_includes_paypal_fee_breakdown(monkeypatch):
+    """PayPal's seller_receivable_breakdown (gross/fee/net) should be
+    surfaced from capture_authorization, not silently discarded - this is
+    the one gap found in an otherwise-clean PayPal integration audit
+    (paypal-server-sdk==2.4.0 does populate this field; confirmed live
+    against real sandbox data, see docs/NEGATIVE_TESTING.md-adjacent audit
+    notes), used to show the fee/net split on a completed transaction.
+    """
+    fake = FakeClient(payment_responses={
+        "capture_authorized_payment": FakeApiResponse(
+            CapturedPayment.from_dictionary(CAPTURE_RESPONSE_WITH_BREAKDOWN)
+        ),
+    })
+    monkeypatch.setattr(paypal_orders, "get_paypal_client", lambda: fake)
+
+    result = await paypal_orders.capture_authorization("AUTH123")
+    assert result["paypal_fee"] == 2.15
+    assert result["net_amount"] == 61.84
 
 
 @pytest.mark.asyncio
@@ -283,7 +317,7 @@ async def test_create_order_idempotency_key_is_deterministic_per_transaction(mon
         )
 
     keys = {options["paypal_request_id"] for _, options in fake.orders.calls}
-    assert keys == {"agentauth-order-tx_same_transaction"}, (
+    assert keys == {"auctara-order-tx_same_transaction"}, (
         "every call for the same transaction must send the exact same idempotency key"
     )
 
@@ -293,7 +327,7 @@ async def test_create_order_idempotency_key_is_deterministic_per_transaction(mon
         cancel_url="https://x/cancel", custom_id="tx_other_transaction",
     )
     all_keys = {options["paypal_request_id"] for _, options in fake.orders.calls}
-    assert all_keys == {"agentauth-order-tx_same_transaction", "agentauth-order-tx_other_transaction"}
+    assert all_keys == {"auctara-order-tx_same_transaction", "auctara-order-tx_other_transaction"}
 
 
 @pytest.mark.asyncio
@@ -313,7 +347,7 @@ async def test_authorize_order_sends_deterministic_idempotency_key(monkeypatch):
     await paypal_orders.authorize_order("ORDER123")
 
     keys = {options["paypal_request_id"] for _, options in fake.orders.calls}
-    assert keys == {"agentauth-authorize-ORDER123"}
+    assert keys == {"auctara-authorize-ORDER123"}
 
 
 @pytest.mark.asyncio
@@ -332,7 +366,7 @@ async def test_capture_authorization_sends_deterministic_idempotency_key(monkeyp
     await paypal_orders.capture_authorization("AUTH123")
 
     keys = {options["paypal_request_id"] for _, options in fake.payments.calls}
-    assert keys == {"agentauth-capture-AUTH123"}
+    assert keys == {"auctara-capture-AUTH123"}
 
 
 @pytest.mark.asyncio
@@ -347,4 +381,4 @@ async def test_void_authorization_sends_deterministic_idempotency_key(monkeypatc
     await paypal_orders.void_authorization("AUTH123")
 
     _, options = fake.payments.calls[0]
-    assert options["paypal_request_id"] == "agentauth-void-AUTH123"
+    assert options["paypal_request_id"] == "auctara-void-AUTH123"

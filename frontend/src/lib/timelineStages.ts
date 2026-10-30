@@ -117,6 +117,40 @@ export function buildTimelineStages(tx: Transaction): TimelineStage[] {
     });
   }
 
+  // Every other way a transaction ends FAILED - a research-loop error, no
+  // active policy configured, a PayPal API call failing, a price-variance
+  // lookup failure, or a transaction that went quiet mid-flight long enough
+  // for the orphaned-transaction reconciliation sweep to give up on it -
+  // goes through the backend's shared, generic _fail() and emits a single
+  // TRANSACTION_FAILED event, unlike the two more specific terminal paths
+  // above (a deliberate out-of-scope decline, the owning agent being
+  // retired) which each have their own event and their own handling.
+  // Without this, a transaction that failed this way left whatever stage
+  // the pipeline had reached sitting exactly as "pending"/"current"
+  // forever - looking like the task was still quietly working (the circle
+  // for that stage would never fill in) even though it was permanently,
+  // terminally done.
+  const failedGenerically = find("TRANSACTION_FAILED");
+  if (tx.state === "FAILED" && !declined && !cancelled) {
+    let marked = false;
+    for (const stage of stages) {
+      if (stage.status === "done" || stage.status === "skipped") continue;
+      if (!marked) {
+        stage.status = "failed";
+        stage.timestamp = stage.timestamp || failedGenerically?.created_at || tx.updated_at;
+        stage.detail =
+          tx.error ||
+          (typeof failedGenerically?.payload?.error === "string" ? failedGenerically.payload.error : undefined) ||
+          "This step failed and the transaction did not complete.";
+        marked = true;
+      } else {
+        stage.status = "skipped";
+        stage.timestamp = stage.timestamp || failedGenerically?.created_at || tx.updated_at;
+        stage.detail = "Skipped: the transaction failed before this step was reached.";
+      }
+    }
+  }
+
   if (cancelled) {
     // Whatever stage the pipeline had genuinely reached (done/failed) stays
     // exactly as it was - those are real, permanent outcomes. Anything that

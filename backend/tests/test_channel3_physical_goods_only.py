@@ -142,7 +142,7 @@ def test_software_query_never_reaches_the_real_channel3_api(monkeypatch):
             },
         )])
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([search_attempt, proposal]),
         )
 
@@ -201,7 +201,7 @@ def test_genuinely_physical_query_still_reaches_channel3(monkeypatch):
             },
         )])
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([search_call, proposal]),
         )
 

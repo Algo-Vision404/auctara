@@ -136,7 +136,7 @@ def test_fabricated_channel3_product_id_is_rejected(monkeypatch):
             },
         )])
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([fabricated_proposal, honest_retry]),
         )
 
@@ -188,7 +188,7 @@ def test_image_url_without_channel3_product_id_is_rejected(monkeypatch):
             },
         )])
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([fabricated_image, honest_retry]),
         )
 
@@ -266,7 +266,7 @@ def test_channel3_fields_mismatched_with_the_claimed_product_are_rejected(monkey
             },
         )])
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([search_call, mismatched_proposal, honest_retry]),
         )
 
@@ -321,7 +321,7 @@ def test_genuine_channel3_product_id_is_accepted(monkeypatch):
             },
         )])
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([search_call, proposal]),
         )
 

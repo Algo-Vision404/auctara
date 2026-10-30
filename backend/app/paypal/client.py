@@ -6,11 +6,11 @@ The SDK (not this module) owns the OAuth2 client-credentials token fetch,
 caching and refresh, request retries, and typed error exceptions. This
 module is a thin wrapper that:
 
-  * builds the one long-lived `PaypalServersdkClient` AgentAuth uses, from
+  * builds the one long-lived `PaypalServersdkClient` Auctara uses, from
     `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` / `PAYPAL_ENVIRONMENT`
   * translates whatever the SDK raises (`ApiException` and its typed
     subclasses, `AuthValidationException` for bad credentials, `requests`
-    transport errors) into AgentAuth's own `PayPalError`, keeping PayPal's
+    transport errors) into Auctara's own `PayPalError`, keeping PayPal's
     real error detail attached rather than swallowing it
   * exposes `to_wire_dict`, a generic unwrapper that turns an SDK response
     model back into the same plain snake_case dict PayPal's raw JSON uses
@@ -37,7 +37,7 @@ from paypalserversdk.paypal_serversdk_client import PaypalServersdkClient
 
 from app.config import get_settings
 
-logger = logging.getLogger("agentauth.paypal")
+logger = logging.getLogger("auctara.paypal")
 
 # Every exception type a call through the SDK can raise that represents a
 # real interaction with (or failure to reach) PayPal. See the SDK's own

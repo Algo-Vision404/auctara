@@ -10,19 +10,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes import agents, audit, dashboard, health, policies, schedules, tasks, transactions
-from app.config import get_settings
+from app.config import TRUSTED_ORIGIN_REGEX, get_settings
 from app.database.migrations import run_migrations
 from app.scheduler import scheduler_loop
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("agentauth")
+logger = logging.getLogger("auctara")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     run_migrations()
     s = get_settings()
-    logger.info("AgentAuth backend started. PayPal env=%s, model=%s", s.paypal_environment, s.openrouter_model)
+    logger.info("Auctara backend started. PayPal env=%s, model=%s", s.paypal_environment, s.groq_model)
 
     scheduler_task = None
     stop_event = asyncio.Event()
@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AgentAuth API",
+    title="Auctara API",
     version="1.0.0",
     description=(
         "Delegated spending authority for AI agents. An agent proposes a purchase; "
@@ -57,7 +57,12 @@ settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.trusted_frontend_origins),
-    allow_origin_regex=r"https://.*\.e2b\.app",
+    # .pattern, not a second hand-copied regex string: this and
+    # app.config.is_trusted_frontend_origin (used for the PayPal return/
+    # cancel URL) must always trust the exact same set of origins, or a
+    # real user's browser could pass CORS here while still being treated
+    # as untrusted there (or vice versa).
+    allow_origin_regex=TRUSTED_ORIGIN_REGEX.pattern,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -89,4 +94,4 @@ app.include_router(schedules.router, tags=["schedules"])
 
 @app.get("/")
 def root():
-    return {"name": "AgentAuth API", "status": "running"}
+    return {"name": "Auctara API", "status": "running"}

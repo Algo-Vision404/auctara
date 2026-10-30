@@ -1,7 +1,7 @@
 # APIMatic: building the PayPal integration on a Context Plugin, not a guess
 
 This is a **supporting-tier** integration (dev/infra, like Render): it does
-not touch AgentAuth's authorization model, policy engine, or payment state
+not touch Auctara's authorization model, policy engine, or payment state
 machine. What it changes is *how the PayPal integration itself was built*:
 replacing a hand-rolled REST client with PayPal's own official,
 APIMatic-generated Server SDK, installed and used the way APIMatic's
@@ -11,7 +11,7 @@ data.
 
 ## What "Best Use of APIMatic" actually asks for
 
-It is not about generating a developer portal for AgentAuth's own API (an
+It is not about generating a developer portal for Auctara's own API (an
 earlier, mistaken reading of this requirement, reverted). The real
 mechanism, per the hackathon's own materials, is APIMatic's **Context
 Plugin**: a package of "skills" for Claude Code, Cursor, Codex, and VS Code
@@ -132,7 +132,7 @@ return the same plain dicts they always did, so
   (`Environment.SANDBOX` / `Environment.PRODUCTION`), replacing the
   hand-rolled OAuth2 token cache entirely. It translates whatever the SDK
   raises (`ApiException` and its typed subclasses, `AuthValidationException`,
-  `requests` transport errors) into AgentAuth's existing `PayPalError`,
+  `requests` transport errors) into Auctara's existing `PayPalError`,
   keeping PayPal's real error detail (`name`/`message`/`debug_id`/`details`)
   attached instead of discarding it.
 - `orders.py` builds requests from the SDK's own typed models

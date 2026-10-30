@@ -36,7 +36,7 @@ from dataclasses import dataclass
 
 from app.agent.llm_errors import call_llm_with_retry, require_first_choice
 
-logger = logging.getLogger("agentauth.scope_guard")
+logger = logging.getLogger("auctara.scope_guard")
 
 _SYSTEM_PROMPT = """You are an independent compliance reviewer. You did NOT \
 do the research behind this purchase proposal and you know nothing about it \
@@ -124,7 +124,7 @@ async def check_scope(
                 tool_choice="required",
                 temperature=0,
                 max_tokens=200,
-                extra_body={"reasoning": {"enabled": False}},
+                extra_body={"reasoning_effort": "low"},
             )
             # See require_first_choice's docstring: validated here, inside
             # the retried callable, so a 200 OK with no actual choice in it

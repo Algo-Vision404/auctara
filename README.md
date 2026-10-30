@@ -1,12 +1,12 @@
-# AgentAuth
+# Auctara
 
 ### Delegated Spending Authority for AI Agents
 
 > **Let AI agents act. Keep financial authority under your control.**
 
-## What is AgentAuth?
+## What is Auctara?
 
-AgentAuth lets you delegate a real purchasing task to an AI agent, such as
+Auctara lets you delegate a real purchasing task to an AI agent, such as
 "find the cheapest annual project-management software for my team and buy it
 if it's under $80," while keeping every dollar of authority under deterministic,
 backend-enforced policy. The agent can research the live web, compare real
@@ -15,7 +15,7 @@ that proposal itself. Every transaction is independently evaluated by a
 rule-based policy engine, optionally routed to you for human approval, and
 only then executed through the real PayPal Sandbox Orders API.
 
-AgentAuth is not a shopping assistant, a PayPal wallet, or a banking app. It
+Auctara is not a shopping assistant, a PayPal wallet, or a banking app. It
 is the authorization layer that sits between an autonomous agent and real
 money.
 
@@ -28,11 +28,11 @@ has, and how is that boundary enforced."
 
 ## Solution
 
-AgentAuth provides delegated spending authority with deterministic financial
+Auctara provides delegated spending authority with deterministic financial
 policies:
 
 - Users describe an agent's purpose and spending authority in plain English.
-- AgentAuth converts that into an explicit, numeric policy (autonomous limit,
+- Auctara converts that into an explicit, numeric policy (autonomous limit,
   approval threshold, daily/monthly caps, velocity limits, blocked/allowed
   categories).
 - The agent proposes; a separate, deterministic backend policy engine
@@ -41,6 +41,30 @@ policies:
   authorized (and, where required, a human has approved).
 - Every financial event is written to an HMAC-SHA256 chained audit log.
 
+## Why not just give the agent a card, or approve every purchase by hand?
+
+Agentic-commerce demos tend toward one of two extremes, and Auctara is
+deliberately neither:
+
+- **Hand the agent a payment method directly.** Fast to build, but there is
+  no enforced boundary: the agent's own judgment (or a prompt-injected
+  web page, or a bug) *is* the spending limit.
+- **Route every single purchase through a human.** Safe, but it isn't
+  delegation — it's an approval queue with an AI-written description
+  attached, and it doesn't scale to standing/recurring instructions.
+
+Auctara's bet is that the interesting problem is the middle: an agent
+that can act autonomously *within a boundary it cannot move itself*. That
+shows up as concrete, testable mechanics, not just a tagline — a
+specificity gate that forces a vague proposal back for clarification
+before it can even reach policy evaluation; a policy engine that is plain
+Python, not a second LLM call, so `ALLOW`/`APPROVAL_REQUIRED`/`BLOCK` is
+deterministic and auditable; velocity limits and price-variance tolerance
+enforced at authorization time, not just at proposal time; and standing
+delegated instructions (recurring schedules) that still get evaluated by
+that same policy engine on every single firing, rather than being
+trusted once and left to run unchecked.
+
 ## Architecture
 
 ```text
@@ -48,7 +72,7 @@ User
  ↓
 Natural-language task
  ↓
-AI Agent (OpenRouter, tool-calling: search_web, get_exchange_rate, create_purchase_proposal)
+AI Agent (Groq, tool-calling: search_web, get_exchange_rate, create_purchase_proposal)
  ↓
 Live web research (DuckDuckGo)
  ↓
@@ -74,12 +98,15 @@ Every number in the UI comes from a real backend operation:
 - Web research uses the live `ddgs` (DuckDuckGo) search API. If it fails, the
   UI shows `SEARCH_FAILED` and the task fails. It never substitutes a fake
   merchant.
-- AI reasoning calls OpenRouter with the model set by `OPENROUTER_MODEL`.
+- AI reasoning calls Groq with the model set by `GROQ_MODEL`.
 - Exchange rates come from `https://open.er-api.com/v6/latest/USD`, fetched
   live (no hard-coded rates).
 - PayPal order creation, authorization, capture, and void all call the real
   PayPal Sandbox REST API. If PayPal is not configured, the app says so
-  explicitly instead of pretending a payment succeeded.
+  explicitly instead of pretending a payment succeeded. A completed
+  transaction's fee/net breakdown (gross, PayPal fee, net settled) comes
+  straight from PayPal's own `seller_receivable_breakdown` on the capture
+  response, not an estimate.
 - All dashboard numbers, activity events, and audit records are read from
   SQLite rows written by the above real operations.
 - Product discovery (Channel3) returns real merchants, prices, and product
@@ -99,7 +126,7 @@ step, never a fabricated result. Off by default for every normal task. See
 
 **Backend:** Python 3.11+, FastAPI, SQLite (WAL mode, `BEGIN IMMEDIATE` for
 budget reservations), httpx, Uvicorn, `ddgs` (DuckDuckGo search), the
-`openai` SDK pointed at OpenRouter, PayPal REST APIs (OAuth2 + Orders v2),
+`openai` SDK pointed at Groq, PayPal REST APIs (OAuth2 + Orders v2),
 [Channel3](https://trychannel3.com) for real-time product discovery,
 HMAC-SHA256 chained audit log, Server-Sent Events for live streaming, an
 in-process (or standalone-worker) scheduler for recurring delegated tasks.
@@ -163,7 +190,7 @@ deterministic policy engine in `backend/app/guardrails/`.
 ## Project structure
 
 ```text
-agentauth/
+auctara/
 ├── backend/            FastAPI service (agent orchestration, policy engine,
 │                       PayPal client, Channel3 search, scheduler, audit
 │                       trail, SSE, SQLite)
@@ -174,6 +201,9 @@ agentauth/
 ├── docs/
 │   ├── APIMATIC.md          How the PayPal client was rebuilt on PayPal's official APIMatic-generated SDK
 │   ├── NEGATIVE_TESTING.md  How the opt-in "Sandbox QA" PayPal decline demo works, and why it doesn't break "zero mock data"
+│   ├── TOOLS_USED.md        Devpost "tools used" draft, per sponsor technology
+│   ├── DEMO_SCRIPT.md       Shot-by-shot demo video script
+│   ├── DEVPOST_SUBMISSION.md  Full written submission draft (inspiration, what it does, how it was built, etc.)
 │   └── openapi.json         The live OpenAPI spec, pulled from the running backend
 ├── .env.example
 ├── docker-compose.yml  Local multi-container topology (+ optional separate worker profile)
@@ -218,9 +248,9 @@ Copy `.env.example` to `backend/.env` and fill in:
 |---|---|
 | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | Sandbox REST app credentials from the [PayPal Developer Dashboard](https://developer.paypal.com/dashboard/applications) |
 | `PAYPAL_ENVIRONMENT` | `sandbox` (default) or `live` |
-| `PAYPAL_TEST_CARD_*` | Optional. A card generated from **your** Sandbox account's *Testing Tools → Generate credit cards*. If set, the agent can authorize a payment directly (no buyer redirect), the realistic analog of a corporate card already on file. If left blank, AgentAuth falls back to the standard PayPal Checkout approve-link flow, where the frontend shows an **Approve on PayPal** button that opens the real Sandbox checkout. |
-| `OPENROUTER_API_KEY` | From [openrouter.ai](https://openrouter.ai/) |
-| `OPENROUTER_MODEL` | Any OpenRouter model id, e.g. `openai/gpt-4o-mini`, `anthropic/claude-3.5-haiku` |
+| `PAYPAL_TEST_CARD_*` | Optional. A card generated from **your** Sandbox account's *Testing Tools → Generate credit cards*. If set, the agent can authorize a payment directly (no buyer redirect), the realistic analog of a corporate card already on file. If left blank, Auctara falls back to the standard PayPal Checkout approve-link flow, where the frontend shows an **Approve on PayPal** button that opens the real Sandbox checkout. |
+| `GROQ_API_KEY` | From [console.groq.com/keys](https://console.groq.com/keys) |
+| `GROQ_MODEL` | Any Groq-hosted model id, e.g. `openai/gpt-oss-120b`, `llama-3.3-70b-versatile` |
 | `CHANNEL3_API_KEY` | Optional. From [trychannel3.com](https://trychannel3.com/sign-up/developer) (free, 1,000 searches/month). Without it, Channel3 product search is skipped and the agent falls back to plain web research. It never returns a fabricated product |
 | `AUDIT_HMAC_SECRET` | Long random string used to chain-sign the audit log |
 | `FRONTEND_URL` | Used for PayPal return/cancel URLs and CORS |
@@ -232,16 +262,17 @@ Copy `.env.example` to `backend/.env` and fill in:
 2. Optionally generate a Sandbox test card under *Testing Tools* and set the
    `PAYPAL_TEST_CARD_*` variables for frictionless two-phase (authorize →
    verify → capture/void) demos without a buyer redirect.
-3. Without a test card, AgentAuth still works end-to-end. It just shows an
+3. Without a test card, Auctara still works end-to-end. It just shows an
    **Approve on PayPal** link that opens the real PayPal Sandbox checkout in
    a new tab for a Sandbox test buyer to approve, exactly like a production
    PayPal Checkout integration.
 
-### 5. OpenRouter
+### 5. Groq
 
-Create a key at openrouter.ai and set `OPENROUTER_API_KEY`. The model is
-never hard-coded. Set `OPENROUTER_MODEL` to whichever model you want the
-agent to reason with.
+Create a key at [console.groq.com/keys](https://console.groq.com/keys) and
+set `GROQ_API_KEY`. The model is never hard-coded. Set `GROQ_MODEL` to
+whichever Groq-hosted model you want the agent to reason with (this project
+runs on `openai/gpt-oss-120b`).
 
 ## Running the tests
 
@@ -251,28 +282,41 @@ source .venv/bin/activate
 pytest -q
 ```
 
-86 tests. Covers: the deterministic policy engine (allow/approval/block
+215 tests. Covers: the deterministic policy engine (allow/approval/block
 thresholds, daily/monthly limits, velocity, category rules, price-variance
 tolerance), the transaction state machine (valid/invalid transitions,
 blocked/approval/success/failure flows), the HMAC audit chain (canonical
-serialization, tamper detection), budget-ledger atomicity, the real
-APIMatic-generated PayPal Server SDK order/authorize/capture/void flows and
+serialization, tamper detection), budget-ledger atomicity and its date
+attribution (a transaction's full ledger effect is counted on the day the
+transaction itself was created, not whichever day an individual
+reserve/release leg happens to post — covered by a dedicated
+day-boundary-crossing regression test), the real APIMatic-generated PayPal
+Server SDK order/authorize/capture/void flows, idempotency-key behavior,
+the PayPal fee/net (`seller_receivable_breakdown`) capture breakdown, and
 error translation, the agent's clarification (`NEEDS_INPUT`) flow and
 zero-amount proposal validation guard, the Agent Operations Schedule
 (recurrence math, due-schedule firing through the real task pipeline,
-inactive-agent safety, run-history retrieval), and the core FastAPI routes
-(including a check that a missing AI key fails the task visibly instead of
-silently faking a result).
+inactive-agent safety, run-history retrieval), stale-transaction
+reconciliation safety nets, and the core FastAPI routes (including a check
+that a missing AI key fails the task visibly instead of silently faking a
+result).
 
 ## Demo
 
 ```text
 Live Demo:
-[URL]
+[URL]   <!-- fill in after deploying, e.g. via render.yaml -->
 
 Demo Video:
-[URL]
+[URL]   <!-- fill in after recording -->
 ```
+
+See [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for the shot-by-shot script
+used to record the demo video — every beat in it is a real action against
+the running app, not a narrated mockup. See
+[`docs/DEVPOST_SUBMISSION.md`](docs/DEVPOST_SUBMISSION.md) for the full
+written submission draft (inspiration, what it does, how it was built,
+challenges, accomplishments, what's next).
 
 ## Honest notes on this being a hackathon project
 

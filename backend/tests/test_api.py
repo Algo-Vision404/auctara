@@ -144,7 +144,7 @@ def test_policy_evaluate_dry_run():
         assert blocked_category_resp.json()["decision"] == "BLOCK"
 
 
-def test_task_without_openrouter_key_fails_visibly_not_silently():
+def test_task_without_groq_key_fails_visibly_not_silently():
     """With no AI key configured, the task must fail with a real, visible
     error. Never pretend to succeed with fabricated data."""
     with TestClient(app) as client:
@@ -166,13 +166,13 @@ def test_task_without_openrouter_key_fails_visibly_not_silently():
             status = t["status"]
             if status == "FAILED":
                 # User-facing error must be plain, in-character language, not
-                # raw provider/technical detail (no "OpenRouter", env var
+                # raw provider/technical detail (no "Groq", env var
                 # names, or URLs - see app/agent/llm_errors.py), but it must
                 # still say an administrator needs to act.
                 error = t["error"] or ""
                 assert "administrator" in error
-                assert "OpenRouter" not in error
-                assert "OPENROUTER" not in error
+                assert "Groq" not in error
+                assert "GROQ" not in error
                 break
         assert status == "FAILED"
 

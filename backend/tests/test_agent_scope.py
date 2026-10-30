@@ -12,7 +12,7 @@ even when asked to. Two independent layers are supposed to guarantee this:
    allowed_categories.
 
 Both are exercised here against the real orchestrator and policy engine,
-with only the OpenRouter network call itself faked out (no real API key or
+with only the Groq network call itself faked out (no real API key or
 network access is available in the test environment).
 """
 from __future__ import annotations
@@ -107,7 +107,7 @@ def test_agent_declines_task_outside_its_purpose(monkeypatch):
             "call_1", "decline_out_of_scope_task",
             {"reason": "Buying popcorn has no connection to managing SaaS subscriptions."},
         )])
-        monkeypatch.setattr(orchestrator, "_openrouter_client", _fake_client_returning(decline))
+        monkeypatch.setattr(orchestrator, "_groq_client", _fake_client_returning(decline))
 
         task = client.post(
             "/tasks", json={"agent_id": agent["id"], "prompt": "Buy a large popcorn for the office party"}
@@ -144,7 +144,7 @@ def test_out_of_scope_proposal_still_blocked_even_if_agent_ignores_the_rule(monk
                 "source_url": "https://example.com/popcorn",
             },
         )])
-        monkeypatch.setattr(orchestrator, "_openrouter_client", _fake_client_returning(proposal))
+        monkeypatch.setattr(orchestrator, "_groq_client", _fake_client_returning(proposal))
 
         task = client.post(
             "/tasks", json={"agent_id": agent["id"], "prompt": "Buy popcorn for the office"}
@@ -172,7 +172,7 @@ def test_in_scope_proposal_is_allowed(monkeypatch):
                 "source_url": "https://notion.so/pricing",
             },
         )])
-        monkeypatch.setattr(orchestrator, "_openrouter_client", _fake_client_returning(proposal))
+        monkeypatch.setattr(orchestrator, "_groq_client", _fake_client_returning(proposal))
 
         task = client.post(
             "/tasks", json={"agent_id": agent["id"], "prompt": "Renew our project management software"}

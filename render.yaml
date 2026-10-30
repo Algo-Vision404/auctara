@@ -24,7 +24,7 @@
 
 services:
   - type: web
-    name: agentauth-backend
+    name: auctara-backend
     env: python
     plan: free
     rootDir: backend
@@ -50,20 +50,20 @@ services:
       - key: CHANNEL3_API_KEY
         sync: false
       - key: DATABASE_URL
-        value: sqlite:////var/data/agentauth.db
+        value: sqlite:////var/data/auctara.db
       - key: AUDIT_HMAC_SECRET
         generateValue: true
       - key: FRONTEND_URL
-        value: https://agentauth-frontend.onrender.com
+        value: https://auctara-frontend.onrender.com
       - key: RUN_SCHEDULER_INPROCESS
         value: "true"
     disk:
-      name: agentauth-data
+      name: auctara-data
       mountPath: /var/data
       sizeGB: 1
 
   - type: web
-    name: agentauth-frontend
+    name: auctara-frontend
     env: node
     plan: free
     rootDir: frontend
@@ -71,12 +71,12 @@ services:
     startCommand: npm start -- -p $PORT -H 0.0.0.0
     envVars:
       - key: BACKEND_INTERNAL_URL
-        value: https://agentauth-backend.onrender.com
+        value: https://auctara-backend.onrender.com
 
   # Optional. Uncomment for an isolated scheduler process (requires a paid
   # Render worker plan; also set RUN_SCHEDULER_INPROCESS=false above).
   # - type: worker
-  #   name: agentauth-scheduler
+  #   name: auctara-scheduler
   #   env: python
   #   plan: starter
   #   rootDir: backend
@@ -100,4 +100,4 @@ services:
   #     - key: AUDIT_HMAC_SECRET
   #       sync: false
   #     - key: FRONTEND_URL
-  #       value: https://agentauth-frontend.onrender.com
+  #       value: https://auctara-frontend.onrender.com

@@ -22,12 +22,12 @@ from app.database.migrations import run_migrations
 from app.scheduler import scheduler_loop
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("agentauth.worker")
+logger = logging.getLogger("auctara.worker")
 
 
 async def main() -> None:
     run_migrations()
-    logger.info("AgentAuth worker started: polling for due scheduled tasks.")
+    logger.info("Auctara worker started: polling for due scheduled tasks.")
     await scheduler_loop()
 
 

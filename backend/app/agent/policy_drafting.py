@@ -38,7 +38,7 @@ from app.agent.llm_errors import (
 )
 from app.config import get_settings
 
-logger = logging.getLogger("agentauth.policy_drafting")
+logger = logging.getLogger("auctara.policy_drafting")
 
 # A tighter cap than the main research loop's MAX_CLARIFICATION_ROUNDS (5):
 # a human is sitting right here actively setting up an agent, not waiting on
@@ -217,12 +217,12 @@ class PolicyNeedsClarification(Exception):
 
 def _client_and_settings():
     settings = get_settings()
-    if not settings.openrouter_api_key:
+    if not settings.groq_api_key:
         raise PolicyDraftError(NOT_CONFIGURED_MESSAGE)
     client = AsyncOpenAI(
-        base_url=settings.openrouter_base_url,
-        api_key=settings.openrouter_api_key,
-        default_headers={"HTTP-Referer": settings.frontend_url or "http://localhost:3000", "X-Title": "AgentAuth"},
+        base_url=settings.groq_base_url,
+        api_key=settings.groq_api_key,
+        default_headers={"HTTP-Referer": settings.frontend_url or "http://localhost:3000", "X-Title": "Auctara"},
     )
     return client, settings
 
@@ -260,7 +260,7 @@ async def draft_policy_step(conversation: list[dict]) -> dict:
 
     async def _make_call():
         response = await client.chat.completions.create(
-            model=settings.openrouter_model,
+            model=settings.groq_model,
             messages=messages,
             temperature=0.1,
             # A clarifying question or a policy draft are both always a
@@ -273,12 +273,13 @@ async def draft_policy_step(conversation: list[dict]) -> dict:
             # actually produces.
             max_tokens=1024,
             response_format={"type": "json_object"},
-            # Same fix as the main research loop: some free/reasoning-capable
-            # OpenRouter models spend the whole token budget on invisible
-            # chain-of-thought by default, which can truncate this call
-            # before it ever emits the actual JSON object. This call only
-            # ever needs a small structured result, never visible reasoning.
-            extra_body={"reasoning": {"enabled": False}},
+            # Same fix as the main research loop: the configured Groq model
+            # is reasoning-capable and spends real completion tokens on
+            # invisible chain-of-thought by default, which can truncate this
+            # call before it ever emits the actual JSON object. This call
+            # only ever needs a small structured result, never visible
+            # reasoning.
+            extra_body={"reasoning_effort": "low"},
         )
         # See require_first_choice's docstring: validated inside the
         # retried callable so a 200 OK with no actual choice in it (seen

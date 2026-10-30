@@ -11,6 +11,7 @@ import json
 import logging
 from typing import Any, Optional
 
+import httpx
 from openai import AsyncOpenAI
 
 from app.agent.llm_errors import (
@@ -37,7 +38,7 @@ from app.search.fetch import FetchError, fetch_page
 from app.state_machine import TERMINAL_STATES, InvalidTransition, transition
 from app.streaming.events import bus
 
-logger = logging.getLogger("agentauth.orchestrator")
+logger = logging.getLogger("auctara.orchestrator")
 
 MAX_TOOL_ITERATIONS = 10
 
@@ -204,18 +205,152 @@ def _looks_like_non_physical_query(query: str) -> bool:
     return any(word in q for word in _NON_PHYSICAL_SIGNAL_WORDS)
 
 
-def _openrouter_client() -> AsyncOpenAI:
+def _groq_client() -> AsyncOpenAI:
     settings = get_settings()
-    if not settings.openrouter_api_key:
+    if not settings.groq_api_key:
         raise AgentError(NOT_CONFIGURED_MESSAGE)
     return AsyncOpenAI(
-        base_url=settings.openrouter_base_url,
-        api_key=settings.openrouter_api_key,
-        default_headers={
-            "HTTP-Referer": settings.frontend_url or "http://localhost:3000",
-            "X-Title": "AgentAuth",
-        },
+        base_url=settings.groq_base_url,
+        api_key=settings.groq_api_key,
+        # The SDK's own default read timeout is 600s. A provider call can
+        # occasionally stall for minutes under provider-side load without
+        # erroring - with the default, that left a task sitting in
+        # RESEARCHING with zero activity and zero error for up to 10 minutes
+        # per call, indistinguishable from a genuine hang to anyone watching
+        # it. A much shorter timeout here turns that silent stall into an
+        # APITimeoutError within seconds, which is already treated as a
+        # transient error by call_llm_with_retry (same bucket as a 429/5xx)
+        # - so a slow response now gets retried with backoff and visibly
+        # logged, instead of just... not happening, for minutes, with
+        # nothing to show for it.
+        timeout=httpx.Timeout(connect=10.0, read=45.0, write=45.0, pool=45.0),
     )
+
+
+async def _check_task_specificity(task_prompt: str) -> Optional[str]:
+    """Deterministic pre-flight gate run once, before a brand-new task ever
+    starts researching: this is real money, even in a sandbox, so a task
+    that says neither what to buy nor what it may cost should never be
+    guessed at based on vibes.
+
+    This is a dedicated, narrowly-scoped, forced tool call - NOT a plain
+    instruction buried inside the long main SYSTEM_PROMPT for the model to
+    remember and apply correctly on its own initiative partway through a
+    multi-step tool-calling conversation. That was tried first and observed
+    in practice to not reliably work with weaker/free-tier models, which
+    will happily dive straight into search_web for a task as bare as "buy
+    me a software" despite being told not to. A single, narrow, forced
+    yes/no classification with nothing else competing for the model's
+    attention is something even a weak model gets right far more
+    consistently.
+
+    Returns a short clarifying question to ask the human if the task names
+    neither a specific-enough product/use case nor a budget, or None if
+    either is present and research may proceed normally. Fails OPEN (returns
+    None) if the check itself cannot get a usable answer, rather than
+    permanently blocking every task behind a broken gate - the research
+    loop's own "genuinely stuck" ask-instead-of-guessing path is still there
+    as a second line of defense if the task really was too vague.
+    """
+    try:
+        client = _groq_client()
+    except Exception:
+        logger.warning("Specificity pre-check failed open (could not build a Groq client)", exc_info=True)
+        return None
+    settings = get_settings()
+    schema = [{
+        "type": "function",
+        "function": {
+            "name": "specificity_check",
+            "description": (
+                "Record whether this task names a specific enough product/service "
+                "or use case, AND states a budget/price constraint, before any "
+                "research happens."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "names_product_or_use": {
+                        "type": "boolean",
+                        "description": (
+                            "True if the task says what KIND of thing to buy (a "
+                            "product, service, or clear use case) - it does not need "
+                            "to name an exact brand or model. False for a bare "
+                            "category with no product/use in it at all, like 'buy me "
+                            "a software', 'get me a subscription', or 'buy something "
+                            "for the office'."
+                        ),
+                    },
+                    "states_budget": {
+                        "type": "boolean",
+                        "description": (
+                            "True if the task ITSELF states a budget or price "
+                            "constraint - an exact amount, an upper limit, or a "
+                            "comparative instruction like 'the cheapest X'. False if "
+                            "no price constraint appears in the task text at all."
+                        ),
+                    },
+                    "clarifying_question": {
+                        "type": "string",
+                        "description": (
+                            "Required only if either field above is false: ONE "
+                            "short, friendly question asking for whichever is "
+                            "missing. Empty string if both fields are true."
+                        ),
+                    },
+                },
+                "required": ["names_product_or_use", "states_budget", "clarifying_question"],
+            },
+        },
+    }]
+
+    async def _make_call():
+        response = await client.chat.completions.create(
+            model=settings.groq_model,
+            messages=[
+                {"role": "system", "content": (
+                    "You check exactly one thing about a shopping task before any "
+                    "research happens: does it name a specific enough product/use "
+                    "case, and does it state a budget? Call specificity_check "
+                    "exactly once with your answer. Do not research, browse, or "
+                    "guess at real products or prices - that is a separate step "
+                    "that only happens after this check passes."
+                )},
+                {"role": "user", "content": f"Task: \"{task_prompt}\""},
+            ],
+            tools=schema,
+            tool_choice="required",
+            temperature=0,
+            max_tokens=256,
+            extra_body={"reasoning_effort": "low"},
+        )
+        return require_first_choice(response)
+
+    try:
+        choice = await call_llm_with_retry(_make_call)
+    except Exception:
+        logger.warning("Specificity pre-check failed open (treating task as specific enough)", exc_info=True)
+        return None
+
+    if not choice.message.tool_calls:
+        return None
+    try:
+        args = json.loads(choice.message.tool_calls[0].function.arguments or "{}")
+    except json.JSONDecodeError:
+        return None
+
+    if args.get("names_product_or_use") and args.get("states_budget"):
+        return None
+
+    question = (args.get("clarifying_question") or "").strip()
+    if not question:
+        missing = []
+        if not args.get("names_product_or_use"):
+            missing.append("what kind of product or service you'd like")
+        if not args.get("states_budget"):
+            missing.append("how much you'd like to spend")
+        question = "Could you tell me " + " and ".join(missing) + "?"
+    return question
 
 
 async def run_task(task_id: str) -> None:
@@ -242,7 +377,7 @@ async def run_task(task_id: str) -> None:
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": build_task_prompt(agent["purpose"], agent["directive"], task["prompt"])},
     ]
-    await _continue_research(agent, task, tx_id, messages)
+    await _continue_research(agent, task, tx_id, messages, check_specificity=True)
 
 
 async def resume_task(task_id: str, reply: str) -> None:
@@ -289,17 +424,32 @@ async def resume_task(task_id: str, reply: str) -> None:
     await _continue_research(agent, task, tx_id, messages)
 
 
-async def _continue_research(agent: dict, task: dict, tx_id: str, messages: list[dict]) -> None:
+async def _continue_research(agent: dict, task: dict, tx_id: str, messages: list[dict],
+                               *, check_specificity: bool = False) -> None:
     """Shared tail end of run_task/resume_task: run the research loop from
     wherever `messages` leaves off, then (if it actually produced a
     proposal rather than pausing/declining/failing) carry it through policy
     evaluation and execution. Split out so both a brand-new task and one
-    resuming after a human reply land in identical downstream handling."""
+    resuming after a human reply land in identical downstream handling.
+
+    `check_specificity` is only ever True from run_task's brand-new-task
+    path - a human's reply to an earlier question (resume_task) already
+    supplied whatever this gate would have asked for, so one gate at the
+    very start is enough; anything still too vague to research after that
+    falls through to the research loop's own "genuinely stuck" ask instead.
+    """
     task_id = task["id"]
     policy_row = models.get_active_policy(agent["id"])
     if not policy_row:
         await _fail(tx_id, task_id, agent["id"], "No active policy configured for this agent.")
         return
+
+    if check_specificity:
+        question = await _check_task_specificity(task["prompt"])
+        if question:
+            messages.append({"role": "assistant", "content": question})
+            await _ask_clarifying_question(tx_id, task_id, agent["id"], question, messages)
+            return
 
     try:
         proposal = await _run_research_loop(
@@ -407,7 +557,7 @@ async def _continue_research(agent: dict, task: dict, tx_id: str, messages: list
         # so there is nothing a scope opinion could usefully add.
         if decision["decision"] != "BLOCK":
             scope_verdict = await check_scope(
-                _openrouter_client, get_settings().openrouter_model,
+                _groq_client, get_settings().groq_model,
                 agent_purpose=agent["purpose"], agent_directive=agent["directive"],
                 merchant=proposal.get("merchant") or "", product_name=proposal.get("product_name") or "",
                 category=proposal["category"], amount=proposal["amount"], currency=proposal["currency"],
@@ -527,7 +677,7 @@ async def _sanitize_human_message(client: AsyncOpenAI, settings, raw: str) -> st
         return raw
     try:
         response = await client.chat.completions.create(
-            model=settings.openrouter_model,
+            model=settings.groq_model,
             messages=[
                 {
                     "role": "system",
@@ -547,7 +697,7 @@ async def _sanitize_human_message(client: AsyncOpenAI, settings, raw: str) -> st
             ],
             temperature=0.1,
             max_tokens=200,
-            extra_body={"reasoning": {"enabled": False}},
+            extra_body={"reasoning_effort": "low"},
         )
         cleaned = (require_first_choice(response).message.content or "").strip()
         # Sanity check: a real cleanup should be short. If the model
@@ -614,7 +764,7 @@ async def _run_research_loop(
     what this specific agent actually buys rather than one list shared by
     every agent on the platform (see app/agent/tools.py build_tool_schemas).
     """
-    client = _openrouter_client()
+    client = _groq_client()
     settings = get_settings()
     tool_schemas = build_tool_schemas(categories)
     terminal_tool_schemas = build_terminal_tool_schemas(categories)
@@ -672,35 +822,39 @@ async def _run_research_loop(
             })
         async def _make_call():
             response = await client.chat.completions.create(
-                model=settings.openrouter_model,
+                model=settings.groq_model,
                 messages=messages,
                 tools=terminal_tool_schemas if is_final_call else tool_schemas,
                 tool_choice="required" if is_final_call else "auto",
                 temperature=0.2,
                 max_tokens=1024,
-                # Several free OpenRouter models are "reasoning" models that
-                # by default spend most/all of max_tokens on an internal
-                # chain-of-thought (returned separately as `reasoning`, but
-                # some providers also bleed it into `content` when the
-                # response gets cut off mid-thought). This agent has no use
-                # for visible reasoning, only a final tool call or a short
-                # clean message, so turn it off everywhere; models that don't
-                # support the parameter simply ignore it.
-                extra_body={"reasoning": {"enabled": False}},
+                # The configured Groq model (openai/gpt-oss-120b) is a
+                # "reasoning" model that by default spends real completion
+                # tokens on an internal chain-of-thought, returned separately
+                # as its own `reasoning` field (Groq keeps it cleanly
+                # separate from `content`, never bleeding into it). This
+                # agent has no use for visible reasoning, only a final tool
+                # call or a short clean message, so this keeps it minimal.
+                # Unlike OpenRouter's analogous `reasoning` field, Groq
+                # rejects a `reasoning_effort` value outright on a model that
+                # doesn't support it rather than silently ignoring it, so
+                # swapping GROQ_MODEL to a non-reasoning model means this
+                # needs to come out too.
+                extra_body={"reasoning_effort": "low"},
             )
             # Validated here, inside the retried callable, not after
-            # call_llm_with_retry returns: some free OpenRouter models
-            # occasionally send back a 200 OK with no choices at all (no
-            # exception, nothing to indicate a problem). Checking it here
-            # means that case gets exactly the same retried-with-backoff
-            # treatment as a 429/5xx, instead of crashing this loop with a
-            # raw TypeError on response.choices[0].
+            # call_llm_with_retry returns: some providers occasionally send
+            # back a 200 OK with no choices at all (no exception, nothing to
+            # indicate a problem). Checking it here means that case gets
+            # exactly the same retried-with-backoff treatment as a 429/5xx,
+            # instead of crashing this loop with a raw TypeError on
+            # response.choices[0].
             return require_first_choice(response)
 
         try:
             choice = await call_llm_with_retry(_make_call)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("OpenRouter chat.completions.create failed")
+            logger.exception("Groq chat.completions.create failed")
             raise AgentError(humanize_llm_error(exc)) from exc
 
         msg = choice.message
@@ -988,15 +1142,24 @@ async def _run_research_loop(
                     "content": json.dumps({"error": f"Unknown tool {name}"}),
                 })
 
-    # Should be effectively unreachable now that the final call above forces
-    # tool_choice onto exactly create_purchase_proposal/decline_out_of_scope_task
-    # - this only still fires if the model ignores that forced choice outright
-    # (a genuinely broken/uncooperative model response), not the "kept
-    # searching forever" failure this used to catch every time.
-    raise AgentError(
-        "This agent searched but couldn't settle on a result in time. Try a more specific "
-        "request (name a product or a price range instead of \"cheapest\"), or try again."
+    # Reached when the model's forced final call (tool_choice="required",
+    # terminal tools only) still didn't land a valid create_purchase_proposal
+    # or decline_out_of_scope_task - e.g. every candidate it tried to submit
+    # failed validation (hallucinated/mismatched fields, no real product
+    # pinned down) and it ran out of turns to try again. That is exactly the
+    # same "genuinely stuck, needs a human" situation NeedsInputError already
+    # exists for elsewhere in this loop, so it gets the same treatment: pause
+    # in NEEDS_INPUT with the full conversation preserved (including every
+    # validation error the model already saw) instead of failing the task
+    # outright and forcing the human to retype the whole request from
+    # scratch in a brand new task. _ask_clarifying_question still enforces
+    # MAX_CLARIFICATION_ROUNDS, so a task that keeps landing here on repeat
+    # resumes still fails eventually rather than asking forever.
+    raise NeedsInputError(
+        "This agent searched but couldn't settle on a specific enough result in time. "
+        "Could you name a specific product, or give a price range instead of \"cheapest\"?"
     )
+
 
 
 async def _normalize_to_usd(amount: float, currency: str) -> float:
@@ -1107,14 +1270,24 @@ async def _ask_clarifying_question(tx_id: str, task_id: str, agent_id: str, ques
 
 
 async def _decline_out_of_scope(tx_id: str, task_id: str, agent_id: str, reason: str) -> None:
-    """The agent itself refused a task outside its assigned purpose, before
-    any research or proposal was made. Reported as BLOCKED, the same terminal
-    state a deterministic policy block ends in (no PayPal transaction is ever
-    created either way), but under its own distinct event type so the
-    Activity feed and Audit trail never conflate 'the agent declined this'
-    with 'the deterministic policy engine blocked this'. Those are two
-    different layers of this platform's guardrails, and which one actually
-    fired is exactly the kind of thing this platform exists to make visible.
+    """The agent itself declined to produce a proposal, via the same
+    decline_out_of_scope_task tool call for two different real situations:
+    the task was plainly outside its delegated purpose (decided on its very
+    first turn, before any research), or the task WAS in scope and really
+    was researched, but nothing suitable turned up within budget by the
+    time its last available turn forced a propose-or-decline choice. Both
+    land here as BLOCKED with no proposal ever made - the frontend tells
+    them apart after the fact from whether any research events exist on
+    this transaction's own activity timeline, rather than this function
+    needing a separate code path for each.
+
+    Reported as BLOCKED, the same terminal state a deterministic policy
+    block ends in (no PayPal transaction is ever created either way), but
+    under its own distinct event type so the Activity feed and Audit trail
+    never conflate 'the agent declined this' with 'the deterministic policy
+    engine blocked this'. Those are two different layers of this platform's
+    guardrails, and which one actually fired is exactly the kind of thing
+    this platform exists to make visible.
     """
     _set_tx_state(tx_id, "RESEARCHING", "BLOCKED", decision="BLOCK", decision_reason=reason)
     models.update_task_status(task_id, "BLOCKED")
@@ -1344,6 +1517,67 @@ async def continue_after_paypal_approval(tx_id: str) -> dict:
     return models.get_transaction(tx_id)
 
 
+async def check_paypal_order_progress(tx_id: str) -> dict:
+    """Safe to call at any time, including rapid repeated polling, while a
+    transaction sits in VERIFYING waiting on the buyer to approve at
+    PayPal - unlike continue_after_paypal_approval above (which assumes
+    approval already happened, because it only ever runs off a genuine
+    PayPal redirect return) or reconcile_stale_verifying_transaction below
+    (which gives up and fails the transaction once it has been waiting
+    past the timeout), this never fails a transaction just because the
+    buyer has not finished yet; it only ever reports "still waiting" so a
+    caller's poll loop can simply try again shortly.
+
+    This is what lets the frontend open PayPal's approve_url in its own
+    separate tab/window instead of navigating the whole app away, and then
+    discover completion itself by polling this from the original tab -
+    without ever depending on PayPal's own return redirect successfully
+    reaching this app. That matters because this app's own sandboxed
+    preview host can require a traffic-access token on direct browser
+    navigation that an external site's redirect response can never attach,
+    silently stranding the buyer on an error page after a real, successful
+    approval - this endpoint gives the original tab an independent way to
+    notice that the payment actually went through anyway.
+    """
+    tx = models.get_transaction(tx_id)
+    if not tx or not tx.get("paypal_order_id"):
+        raise AgentError("Transaction is not awaiting a PayPal approval.")
+    if tx["state"] != "VERIFYING":
+        return tx  # already resolved, one way or another - nothing to check
+
+    try:
+        order = await paypal_orders.get_order(tx["paypal_order_id"])
+    except PayPalError:
+        # A transient lookup hiccup is not this transaction's problem - just
+        # report the current (unchanged) state and let the next poll retry.
+        logger.warning("PayPal order lookup failed during a progress check", exc_info=True)
+        return tx
+
+    if not (order.get("authorization_id") or order.get("status") == "APPROVED"):
+        return tx  # buyer has not finished approving yet - still waiting
+
+    if not models.claim_paypal_continue(tx_id):
+        # A concurrent call - a genuine PayPal redirect landing at the same
+        # moment, another poll, or a scheduler sweep tick - already claimed
+        # it. Do not race it; just report whatever it already produced.
+        return models.get_transaction(tx_id)
+
+    if order.get("authorization_id"):
+        # Already approved *and* authorized - finish it exactly as the
+        # redirect-driven path would.
+        await _finalize_payment(tx_id, order)
+        return models.get_transaction(tx_id)
+
+    try:
+        authorized = await paypal_orders.authorize_order(tx["paypal_order_id"])
+    except PayPalError as exc:
+        await _fail(tx_id, tx["task_id"], tx["agent_id"], f"PayPal authorization failed: {exc}")
+        return models.get_transaction(tx_id)
+    await _finalize_payment(tx_id, authorized)
+    return models.get_transaction(tx_id)
+
+
+
 async def _finalize_payment(tx_id: str, order: dict) -> None:
     tx = models.get_transaction(tx_id)
     agent_id, task_id = tx["agent_id"], tx["task_id"]
@@ -1386,7 +1620,8 @@ async def _finalize_payment(tx_id: str, order: dict) -> None:
             models.adjust_budget(agent_id, tx_id, delta, "CAPTURE_ADJUST")
 
         _set_tx_state(tx_id, "VERIFYING", "CAPTURED",
-                       paypal_capture_id=capture.get("capture_id"), paypal_status=capture.get("status"))
+                       paypal_capture_id=capture.get("capture_id"), paypal_status=capture.get("status"),
+                       paypal_fee=capture.get("paypal_fee"), net_amount=capture.get("net_amount"))
         await emit("PAYMENT_CAPTURED",
                     f"Payment of ${capture.get('amount'):.2f} captured via PayPal.",
                     task_id=task_id, agent_id=agent_id, transaction_id=tx_id, payload=capture)
@@ -1487,3 +1722,76 @@ async def reconcile_stale_verifying_transactions() -> int:
     for tx in stale:
         await reconcile_stale_verifying_transaction(tx)
     return len(stale)
+
+
+# States where a background coroutine (the research/propose/policy loop
+# kicked off by run_task/resume_task via asyncio.create_task) must be the
+# one actively driving the transaction forward - there is no other trigger
+# that will ever move it. This deliberately excludes:
+#   - NEEDS_INPUT and AWAITING_APPROVAL: both are intentional pauses for a
+#     human (a clarifying reply, an approval click) with their own full
+#     state persisted, not lost work - they resume correctly on demand
+#     whenever that human acts, restart or no restart, so "stuck" here is
+#     not actually stuck.
+#   - VERIFYING: already has its own reconciler above, because resolving
+#     it correctly requires checking PayPal's own state first (the buyer
+#     may have actually approved with only our redirect callback lost),
+#     not just giving up.
+#   - every terminal state (COMPLETED, FAILED, BLOCKED, VOIDED, CANCELLED):
+#     nothing to reconcile.
+# A process that dies mid-flight in any of the states below - a crash, a
+# deploy, a sandbox reset - takes that in-memory conversation/work with it
+# permanently; nothing persisted can ever resume it. The only honest thing
+# to do once one has gone quiet for Settings.orphaned_task_timeout_minutes
+# is fail it cleanly (releasing any reserved budget, the same as every
+# other way a transaction stops short of COMPLETED) and tell the human to
+# resubmit, instead of leaving it stuck forever with no explanation.
+ORPHANABLE_STATES = ["CREATED", "RESEARCHING", "PROPOSED", "POLICY_CHECK", "AUTHORIZED"]
+
+
+async def reconcile_orphaned_transaction(tx: dict) -> None:
+    """Resolve one transaction found sitting in an ORPHANABLE_STATE with no
+    activity at all for Settings.orphaned_task_timeout_minutes. Re-checks
+    the task's actual last *activity* event, not just the transaction's
+    own updated_at (which only moves on a state change, not on every step
+    a research loop takes while it stays in the same state) - so a
+    transaction that is still genuinely working, just slowly, is correctly
+    left alone here rather than failed out from under it.
+
+    _fail() re-reads the transaction fresh and only acts if it is still
+    non-terminal, so a transaction that legitimately finished (or was
+    already reconciled by a concurrent tick) in the moment between this
+    sweep listing it and this call running is simply a no-op, not a bug.
+    """
+    settings = get_settings()
+    cutoff = models.window_start_iso(settings.orphaned_task_timeout_minutes)
+    last_seen = models.get_last_activity_at(tx["task_id"]) or tx["updated_at"]
+    if last_seen > cutoff:
+        return  # still genuinely active, just slow - leave it alone
+    await _fail(
+        tx["id"], tx["task_id"], tx["agent_id"],
+        "This task went quiet mid-flight and was never able to finish - most likely "
+        "a server restart interrupted it before any result came back. No purchase "
+        "was made or proposed. Please resubmit it.",
+    )
+
+
+async def reconcile_orphaned_transactions() -> int:
+    """Find every transaction stuck in an ORPHANABLE_STATE with no activity
+    for Settings.orphaned_task_timeout_minutes and resolve each one. Called
+    on every scheduler tick alongside reconcile_stale_verifying_transactions
+    (see app/scheduler.py) - returns the count actually resolved. Some
+    candidates found by the coarse per-state/updated_at query turn out to
+    still be genuinely active once checked individually (see
+    reconcile_orphaned_transaction) and are correctly left alone, so this
+    can be less than the number of candidates found."""
+    settings = get_settings()
+    cutoff = models.window_start_iso(settings.orphaned_task_timeout_minutes)
+    candidates = models.list_stale_active_transactions(ORPHANABLE_STATES, cutoff)
+    resolved = 0
+    for tx in candidates:
+        await reconcile_orphaned_transaction(tx)
+        after = models.get_transaction(tx["id"])
+        if after and after["state"] == "FAILED":
+            resolved += 1
+    return resolved

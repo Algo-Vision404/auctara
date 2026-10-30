@@ -1,5 +1,5 @@
 """The message shown to a user when an LLM call fails must be plain,
-in-character language - never "OpenRouter", an env var name, a dashboard
+in-character language - never "Groq", an env var name, a dashboard
 URL, or a raw HTTP status/SDK exception string. See app/agent/llm_errors.py.
 Messages are randomized (a small pool of variants per failure type) for
 personality/variety, so these tests check for the presence of the right
@@ -19,23 +19,27 @@ from app.agent.llm_errors import (
     is_transient_llm_error,
 )
 
-TECHNICAL_TERMS = ["OpenRouter", "OPENROUTER", ".env", "openrouter.ai", "HTTP "]
+TECHNICAL_TERMS = ["Groq", "GROQ", ".env", "groq.com", "HTTP "]
 
 
 def _status_error(status_code: int, body: dict | None = None) -> APIStatusError:
-    request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
     response = httpx.Response(status_code, request=request, json=body or {"error": {"message": "boom"}})
     return APIStatusError("boom", response=response, body=body or {"error": {"message": "boom"}})
 
 
 def _daily_quota_exhausted_error(*, wrapped: bool = False) -> APIStatusError:
-    # Shaped like OpenRouter's real response when a free model's 50
-    # requests/day cap has hit zero (seen live in this project's own
-    # account): metadata.limit_source ends in "daily", and the message
-    # itself says "per-day". The openai SDK's own `exc.body`, as actually
-    # observed live against the real API, holds this *unwrapped* (no outer
-    # "error" key) - `wrapped=True` recreates the raw-HTTP-response shape
-    # instead, since both have been seen and must both be handled.
+    # _is_exhausted_daily_quota's detection is generic substring matching
+    # ("daily"/"per-day" in the limit_source or message), not tied to any
+    # one provider's exact error shape - this synthesizes a body shaped
+    # like a free-tier daily cap (the shape originally observed live
+    # against OpenRouter, before this app switched providers to Groq) purely
+    # to exercise that generic detection logic, not to assert anything
+    # about what Groq itself actually returns for a real daily cap. The
+    # openai SDK's own `exc.body`, as actually observed live, holds this
+    # *unwrapped* (no outer "error" key) in practice - `wrapped=True`
+    # recreates the raw-HTTP-response shape instead, since both have been
+    # seen and must both be handled.
     inner = {
         "message": (
             "Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free "
@@ -44,11 +48,12 @@ def _daily_quota_exhausted_error(*, wrapped: bool = False) -> APIStatusError:
         "code": 429,
         "metadata": {
             "headers": {"X-RateLimit-Limit": "50", "X-RateLimit-Remaining": "0"},
-            "limit_source": "openrouter_free_tier_daily",
+            "limit_source": "free_tier_daily",
         },
     }
     body = {"error": inner} if wrapped else inner
     return _status_error(429, body)
+
 
 
 @pytest.mark.parametrize("status_code", [402, 401, 429, 500, 503, 418])
@@ -155,7 +160,8 @@ def test_a_plain_burst_rate_limit_is_transient():
 
 
 def test_an_exhausted_daily_quota_is_not_transient():
-    # A 429 that is specifically OpenRouter's free-model *daily* cap won't
+    # A 429 that is specifically a free-model *daily* cap (the shape this
+    # synthesizes was originally observed live against OpenRouter) won't
     # clear up within a few seconds of retrying - it only resets hours
     # later - so it must not be treated as worth a short retry. This is the
     # shape actually seen from the real openai SDK against the real API:

@@ -15,19 +15,22 @@ only, the deterministic policy engine in `backend/app/guardrails/`.
 
 ## PayPal — Orders v2 API (core, "Best Use of PayPal + AI")
 
-The entire point of AgentAuth. An AI agent (OpenRouter, tool-calling) can
+The entire point of Auctara. An AI agent (Groq, tool-calling) can
 research a purchase and draft a proposal, but it never has the authority to
 pay. Only a deterministic, rule-based policy engine decision
 (`ALLOW`, or `APPROVAL_REQUIRED` + a human click) ever reaches PayPal. Every
 executed purchase runs PayPal's real two-phase flow: `create order
 (intent=AUTHORIZE)` → `authorize` → re-verify the authorized amount against
 the agent's proposal → `capture` on match or `void` on drift — against the
-real PayPal Sandbox REST API, every time, with no mocked success path.
-Failure is also always real: a PayPal sandbox decline, exercised on demand
-via PayPal's own official negative-testing header (not fabricated — see
-`docs/NEGATIVE_TESTING.md`), and the price-variance-triggered void path
-proven against the real SDK's own model classes in
-`backend/tests/test_paypal.py`.
+real PayPal Sandbox REST API, every time, with no mocked success path. A
+completed capture's fee/net breakdown (gross amount, PayPal's own fee, net
+settled) is read straight from PayPal's real `seller_receivable_breakdown`
+on the capture response and shown on the transaction detail page — not
+computed or estimated by Auctara. Failure is also always real: a PayPal
+sandbox decline, exercised on demand via PayPal's own official
+negative-testing header (not fabricated — see `docs/NEGATIVE_TESTING.md`),
+and the price-variance-triggered void path proven against the real SDK's
+own model classes in `backend/tests/test_paypal.py`.
 
 ## APIMatic ("Best Use of APIMatic")
 
@@ -103,10 +106,10 @@ build environment.]
 
 ## Also in the stack (not sponsor-prize-specific, but load-bearing)
 
-OpenRouter (model-agnostic LLM access for the agent's tool-calling research
-loop — the model is never hard-coded, selected via `OPENROUTER_MODEL`),
-`ddgs`/DuckDuckGo (live web search), `open.er-api.com` (live exchange
-rates), FastAPI + SQLite (WAL mode, `BEGIN IMMEDIATE` budget reservations)
-for the backend, HMAC-SHA256 hash-chained audit log for tamper evidence,
-Server-Sent Events for the live activity feed, Next.js 15 + TypeScript +
-Tailwind CSS v4 for the frontend.
+Groq (fast open-model LLM access for the agent's tool-calling research
+loop — the model is never hard-coded, selected via `GROQ_MODEL`, currently
+`openai/gpt-oss-120b`), `ddgs`/DuckDuckGo (live web search),
+`open.er-api.com` (live exchange rates), FastAPI + SQLite (WAL mode,
+`BEGIN IMMEDIATE` budget reservations) for the backend, HMAC-SHA256
+hash-chained audit log for tamper evidence, Server-Sent Events for the live
+activity feed, Next.js 15 + TypeScript + Tailwind CSS v4 for the frontend.

@@ -136,7 +136,7 @@ def test_endlessly_searching_model_is_forced_to_commit_on_the_final_call(monkeyp
     it: a task that used to FAIL with zero result now completes with the
     real option the model had already found."""
     fake_client_fn, completions = _fake_client_factory()
-    monkeypatch.setattr(orchestrator, "_openrouter_client", fake_client_fn)
+    monkeypatch.setattr(orchestrator, "_groq_client", fake_client_fn)
     monkeypatch.setattr(orchestrator, "search_web", _fake_search_web)
 
     with TestClient(app) as client:
@@ -174,3 +174,50 @@ def test_endlessly_searching_model_is_forced_to_commit_on_the_final_call(monkeyp
     for earlier_call in completions.calls[:-1]:
         assert earlier_call["tool_choice"] == "auto"
         assert len(earlier_call["tools"]) > 2
+
+
+def test_stubborn_model_that_still_cant_commit_on_the_final_call_pauses_for_input(monkeypatch):
+    """Even the forced final call can fail to land a real result - e.g. a
+    model that only ever proposes an invalid/hallucinated product and never
+    once calls decline_out_of_scope_task either. Before this fix, that dead
+    end FAILED the whole task outright with a generic "try again" message,
+    throwing away everything already researched and forcing the human to
+    retype the entire request in a brand new task. It should instead pause
+    in NEEDS_INPUT with the real conversation preserved, exactly like every
+    other "genuinely stuck" dead end in this loop, so a reply in the same
+    task can pick research back up with full context."""
+
+    class _NeverCommits:
+        def __init__(self):
+            self.calls = 0
+
+        async def create(self, **kwargs):
+            self.calls += 1
+            # Always an invalid tool call (missing every required field),
+            # regardless of whether research tools or only the terminal
+            # ones are on offer - this model cannot ever produce a usable
+            # proposal or an explicit decline.
+            msg = FakeMessage(tool_calls=[FakeToolCall(
+                f"call_{self.calls}", "create_purchase_proposal", {},
+            )])
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+    completions = _NeverCommits()
+    monkeypatch.setattr(orchestrator, "_groq_client", lambda: SimpleNamespace(
+        chat=SimpleNamespace(completions=completions)
+    ))
+    monkeypatch.setattr(orchestrator, "search_web", _fake_search_web)
+
+    with TestClient(app) as client:
+        agent = _permissive_agent(client)
+        task = client.post(
+            "/tasks",
+            json={"agent_id": agent["id"], "prompt": "find me the cheapest management software"},
+        ).json()
+        task = _poll_until(client, task["id"], {"FAILED", "COMPLETED", "BLOCKED", "NEEDS_INPUT"})
+
+    assert task["status"] == "NEEDS_INPUT"
+    tx = task["transactions"][0]
+    assert tx["state"] == "NEEDS_INPUT"
+    assert tx["pending_question"]
+    assert "specific" in tx["pending_question"].lower() or "price range" in tx["pending_question"].lower()

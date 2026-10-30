@@ -144,7 +144,7 @@ def test_required_field_sentinel_string_is_bounced_back_not_accepted(monkeypatch
             },
         )])
         monkeypatch.setattr(
-            orchestrator, "_openrouter_client",
+            orchestrator, "_groq_client",
             _fake_client_sequence([bad_proposal, real_proposal]),
         )
 

@@ -105,6 +105,51 @@ export default function TransactionDetailPage() {
     }
   }, [search, id, router, load]);
 
+  // The "Approve on PayPal" link below opens in its own tab rather than
+  // navigating this page away, specifically so this tab can stay right
+  // here and notice completion on its own - PayPal's own return redirect
+  // back to this app (the `?paypal=return` handler above) is NOT something
+  // this can depend on: this app's sandboxed preview host can require a
+  // traffic-access token on direct browser navigation that an external
+  // site's redirect response can never attach, which would otherwise
+  // strand the buyer on an error page after a real, successful approval
+  // with no way back. Polling checkPaypal (safe to call repeatedly - it
+  // only ever advances the transaction once PayPal reports real approval,
+  // never fails it just for not being approved yet) lets this tab find out
+  // for itself, independent of whether that redirect ever arrives.
+  useEffect(() => {
+    if (!tx || tx.state !== "VERIFYING" || tx.paypal_status !== "PAYER_ACTION_REQUIRED") return;
+    let cancelled = false;
+    const check = () => {
+      api
+        .checkPaypal(id)
+        .then((updated) => {
+          if (cancelled) return;
+          setTx(updated);
+          txStateRef.current = updated.state;
+        })
+        .catch(() => {
+          /* transient - the next interval tick or focus event retries */
+        });
+    };
+    const i = setInterval(check, 3000);
+    // The moment the user switches back to this tab (the natural signal
+    // that they just finished, or gave up, on the PayPal tab) check right
+    // away instead of waiting for the next interval tick - this is what
+    // makes it feel instant rather than laggy.
+    const onFocus = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      clearInterval(i);
+      document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [tx?.state, tx?.paypal_status, id]);
+
   async function handleApprove() {
     await api.approveTransaction(id);
     load();
@@ -183,7 +228,7 @@ export default function TransactionDetailPage() {
       <main className="mx-auto w-full max-w-5xl flex-1 space-y-6 px-5 py-6 md:px-8">
         {error && (
           <div className="card-surface border-l-4 border-l-[var(--color-warning)] p-4 text-sm text-[var(--color-warning)]">
-            {error} Showing the last data AgentAuth successfully loaded.
+            {error} Showing the last data Auctara successfully loaded.
           </div>
         )}
         <div className="flex flex-wrap items-center gap-3">
@@ -215,7 +260,7 @@ export default function TransactionDetailPage() {
             <div>
               <p className="font-semibold">Confirming your PayPal payment…</p>
               <p className="text-sm text-[var(--color-text-secondary)]">
-                You approved this on PayPal. AgentAuth is now authorizing and verifying the price before
+                You approved this on PayPal. Auctara is now authorizing and verifying the price before
                 capture. This takes a few seconds.
               </p>
             </div>
@@ -270,6 +315,28 @@ export default function TransactionDetailPage() {
               <span>Capture ID: {tx.paypal_capture_id}</span>
               <span>Order ID: {tx.paypal_order_id}</span>
             </div>
+            {tx.paypal_fee != null && tx.net_amount != null && (
+              <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1 rounded-xl bg-[var(--color-surface-2)] px-4 py-3 text-sm">
+                <span className="text-[var(--color-text-secondary)]">
+                  Gross{" "}
+                  <span className="font-mono-ui font-semibold text-[var(--color-text)]">
+                    {money(tx.actual_amount ?? tx.amount, tx.currency || "USD")}
+                  </span>
+                </span>
+                <span className="text-[var(--color-text-secondary)]">
+                  PayPal fee{" "}
+                  <span className="font-mono-ui font-semibold text-[var(--color-danger)]">
+                    -{money(tx.paypal_fee, tx.currency || "USD")}
+                  </span>
+                </span>
+                <span className="text-[var(--color-text-secondary)]">
+                  Net settled{" "}
+                  <span className="font-mono-ui font-semibold text-[var(--color-success)]">
+                    {money(tx.net_amount, tx.currency || "USD")}
+                  </span>
+                </span>
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
               <Button variant="primary" onClick={() => router.push("/ledger")}>
                 View in Commerce Ledger
@@ -287,10 +354,11 @@ export default function TransactionDetailPage() {
             <div>
               <p className="font-semibold">PayPal buyer approval required</p>
               <p className="text-sm text-[var(--color-text-secondary)]">
-                Complete this Sandbox order on PayPal to continue the two-phase payment flow.
+                Opens PayPal Sandbox checkout in a new tab - come back here once you&rsquo;re done,
+                this page will pick it up on its own, no redirect needed.
               </p>
             </div>
-            <a href={tx.paypal_approve_url}>
+            <a href={tx.paypal_approve_url} target="_blank" rel="noopener noreferrer">
               <Button variant="primary">
                 Approve on PayPal <ArrowRight size={16} />
               </Button>

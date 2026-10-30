@@ -24,7 +24,7 @@ import httpx
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 
-logger = logging.getLogger("agentauth.search")
+logger = logging.getLogger("auctara.search")
 
 _BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

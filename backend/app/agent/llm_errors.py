@@ -1,11 +1,11 @@
-"""Turn a raw OpenRouter/OpenAI SDK exception into a message a non-technical
+"""Turn a raw Groq/OpenAI SDK exception into a message a non-technical
 end user can actually use, for every place an LLM call can fail: the
 research/purchase loop and AI policy drafting.
 
 Written with a bit of personality instead of flat corporate-speak - the
 agent is "talking" about its own outage, not reciting a status page - while
 still always landing on the real actionable point (what's actually wrong,
-and that an administrator needs to fix it). Never mentions "OpenRouter", env
+and that an administrator needs to fix it). Never mentions "Groq", env
 var names, dashboard URLs, raw HTTP status codes, or SDK exception text -
 that's operator-facing detail that belongs in the logs, not the message a
 user watching a task or chatting with an agent has to read. The full
@@ -22,7 +22,7 @@ from typing import Awaitable, Callable, TypeVar
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError
 
-logger = logging.getLogger("agentauth.llm_errors")
+logger = logging.getLogger("auctara.llm_errors")
 
 T = TypeVar("T")
 
@@ -36,15 +36,21 @@ _TRANSIENT_STATUS_CODES = {429}
 
 
 def _is_exhausted_daily_quota(exc: Exception) -> bool:
-    """True for a 429 that is specifically OpenRouter's free-model *daily*
-    request cap, not a brief per-minute/per-second burst limit. OpenRouter
-    reports which kind of limit tripped in the error body's
-    `metadata.limit_source` (e.g. "openrouter_free_tier_daily"), and
-    separately exposes "X-RateLimit-Remaining": "0" when none are left.
-    This distinction matters because a burst limit clears again within
-    seconds (worth a short retry), while a daily cap only resets at a fixed
-    time hours away - retrying it for a few seconds can never help and just
-    delays surfacing the real problem.
+    """True for a 429 that is a hard *daily* request cap, not a brief
+    per-minute/per-second burst limit (Groq's own standard rate-limit
+    headers - x-ratelimit-reset-requests/tokens - are short rolling
+    windows, typically well under an hour; a provider on a stricter daily
+    cap instead reports which kind of limit tripped in the error body's
+    `metadata.limit_source`, e.g. "..._free_tier_daily", or says "daily"/
+    "per-day" directly in the error message). This distinction matters
+    because a burst limit clears again within seconds (worth a short
+    retry), while a daily cap only resets at a fixed time hours away -
+    retrying it for a few seconds can never help and just delays surfacing
+    the real problem. Written against OpenRouter's free-tier error shape
+    originally; kept as a defensive, best-effort check now that still does
+    no harm if the active provider's 429 body never matches it (such a 429
+    then simply falls through to the ordinary short-retry/rate-limited
+    path below instead of the daily-specific one).
 
     The OpenAI SDK's `exc.body` has been observed to hold either the inner
     error object directly (`{"message": ..., "metadata": {...}}`, what it
@@ -65,7 +71,7 @@ def _is_exhausted_daily_quota(exc: Exception) -> bool:
 class EmptyLLMResponseError(RuntimeError):
     """Raised when a provider call returns a normal 200 OK with no usable
     choice in it - response.choices is None or an empty list. Observed from
-    OpenRouter's free-tier models under provider-side load: no exception,
+    free-tier/overloaded models under provider-side load: no exception,
     no error status, just nothing to read. Every call site used to index
     response.choices[0] directly, which turned this into an unhandled
     TypeError/IndexError - a crash that looked like a bug in this app's own

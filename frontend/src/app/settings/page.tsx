@@ -16,7 +16,7 @@ export default function SettingsPage() {
     api
       .health()
       .then(setHealth)
-      .catch(() => setError("Could not reach the AgentAuth backend."))
+      .catch(() => setError("Could not reach the Auctara backend."))
       .finally(() => setLoading(false));
   }, []);
 
@@ -51,7 +51,7 @@ export default function SettingsPage() {
             <div className="space-y-3 text-sm">
               <Row label="API status" ok={health.status === "ok"} value={health.status} />
               <Row label="PayPal Sandbox" ok={health.paypal_configured} value={health.paypal_configured ? `configured (${health.paypal_environment})` : "not configured"} />
-              <Row label="OpenRouter / AI model" ok={health.openrouter_configured} value={health.openrouter_configured ? health.model : "not configured"} />
+              <Row label="Groq / AI model" ok={health.groq_configured} value={health.groq_configured ? health.model : "not configured"} />
             </div>
           )}
           <p className="text-xs text-[var(--color-text-muted)]">

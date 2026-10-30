@@ -269,11 +269,38 @@ def claim_paypal_continue(tx_id: str) -> bool:
 
 # ------------------------------------------------------------- budget math --
 def get_spent_since(agent_id: str, since_iso: str) -> float:
-    """Sum of committed budget (RESERVE + CAPTURE_ADJUST, minus RELEASE) since a timestamp."""
+    """Sum of committed budget (RESERVE + CAPTURE_ADJUST, minus RELEASE)
+    for every transaction *created* since a timestamp - this is what feeds
+    the actual daily/monthly limit check in app.guardrails.policies, not
+    just the dashboard's display figures, so getting the date boundary
+    right here is a real spending-control correctness issue, not a
+    cosmetic one.
+
+    Filters on the owning transaction's own created_at (joining through
+    transaction_id), deliberately NOT each ledger row's own created_at,
+    the same convention count_transactions_since already uses below. A
+    transaction's lifecycle can span real wall-clock gaps - held in
+    VERIFYING for a while, reconciled later by the scheduler's stale sweep,
+    etc. - so its RESERVE and its eventual RELEASE/CAPTURE_ADJUST legs can
+    land on different calendar days (or, for the monthly cutoff, different
+    calendar months) even though they both belong to one transaction that
+    was decided on one particular day. Filtering by each leg's own
+    timestamp would then only pick up, say, a transaction's -$12 RELEASE
+    posted after midnight while missing the +$12 RESERVE posted before it
+    - making "spent today" go negative for a transaction that was never
+    actually part of today at all, and in turn making that agent's
+    computed daily_remaining exceed its real daily_limit. Attributing the
+    whole transaction's net ledger effect to the single day it was created
+    keeps every transaction counted exactly once, in exactly one day's (or
+    month's) total, no matter when its individual ledger legs happen to
+    post.
+    """
     conn = get_connection()
     row = conn.execute(
-        """SELECT COALESCE(SUM(amount), 0) as total FROM budget_ledger
-           WHERE agent_id=? AND created_at >= ?""",
+        """SELECT COALESCE(SUM(budget_ledger.amount), 0) as total
+           FROM budget_ledger
+           JOIN transactions ON transactions.id = budget_ledger.transaction_id
+           WHERE budget_ledger.agent_id=? AND transactions.created_at >= ?""",
         (agent_id, since_iso),
     ).fetchone()
     return float(row["total"])
@@ -429,6 +456,42 @@ def list_stale_verifying_transactions(older_than_iso: str) -> list[dict]:
         "SELECT * FROM transactions WHERE state='VERIFYING' AND paypal_order_id IS NOT NULL "
         "AND updated_at <= ? ORDER BY updated_at ASC",
         (older_than_iso,),
+    ).fetchall()
+    return [row_to_dict(r) for r in rows]
+
+
+def get_last_activity_at(task_id: str) -> Optional[str]:
+    """The created_at of the most recent activity_events row for this task,
+    or None if it has no activity logged at all (defensive only - every
+    real task gets at least TASK_CREATED/AGENT_STARTED the instant it's
+    created, so this should never actually happen, but a caller deciding
+    whether to fail a transaction as abandoned must never crash on a
+    partial/malformed row instead of just falling back to something else).
+    """
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT MAX(created_at) AS last_at FROM activity_events WHERE task_id=?",
+        (task_id,),
+    ).fetchone()
+    return row["last_at"] if row else None
+
+
+def list_stale_active_transactions(states: list[str], older_than_iso: str) -> list[dict]:
+    """Transactions in any of `states` whose own updated_at is older than
+    `older_than_iso` - a coarse first-pass filter only. updated_at on a
+    transaction row only moves when it changes *state*, not on every step
+    a research loop takes while it stays in the same state (those land in
+    activity_events instead), so this alone cannot tell a truly stalled
+    transaction from one still actively working just inside the same
+    state. The caller (orchestrator.reconcile_orphaned_transaction) makes
+    the real per-transaction call by also checking get_last_activity_at.
+    """
+    conn = get_connection()
+    placeholders = ",".join("?" for _ in states)
+    rows = conn.execute(
+        f"SELECT * FROM transactions WHERE state IN ({placeholders}) AND updated_at <= ? "
+        "ORDER BY updated_at ASC",
+        (*states, older_than_iso),
     ).fetchall()
     return [row_to_dict(r) for r in rows]
 

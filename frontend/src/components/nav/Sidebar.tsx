@@ -77,7 +77,7 @@ function Footer() {
 // up through that gap. That's literally what this product does - an
 // agent's action (the arrow) passing through a checkpoint (the rail) that
 // only lets it through on the terms you set - so the mark means something
-// specific to AgentAuth rather than "trust us, we're secure."
+// specific to Auctara rather than "trust us, we're secure."
 function BrandMark({ size = 19 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -104,7 +104,7 @@ function Brand() {
         <BrandMark size={19} />
       </div>
       <div className="leading-tight">
-        <div className="text-[15px] font-semibold tracking-tight">AgentAuth</div>
+        <div className="text-[15px] font-semibold tracking-tight">Auctara</div>
         {/* An accent-colored tag, not another line of muted gray text -
             the wordmark already has a neutral subtitle's worth of visual
             weight without needing a second one. */}

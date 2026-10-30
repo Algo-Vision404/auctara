@@ -131,3 +131,34 @@ def test_concurrent_claims_on_the_same_transaction_never_both_win():
     assert not errors, f"claim_paypal_continue raised under concurrency: {errors}"
     assert results.count(True) == 1, f"expected exactly one winner, got {results}"
     assert results.count(False) == 7
+
+
+@pytest.mark.asyncio
+async def test_completed_capture_persists_paypal_fee_breakdown(monkeypatch):
+    """capture_authorization's paypal_fee/net_amount (PayPal's own
+    seller_receivable_breakdown - see the PayPal integration audit) must
+    make it all the way onto the transaction row, not just live in the
+    in-memory capture dict for one request - the transaction detail page
+    reads them back from the database on a later page load.
+    """
+    tx = _verifying_transaction()
+
+    async def fake_authorize_order(order_id):
+        return {"order_id": order_id, "authorization_id": "AUTH123",
+                "authorized_amount": 63.99, "status": "CREATED"}
+
+    async def fake_capture_authorization(authorization_id, mock_response=None):
+        return {
+            "capture_id": "CAPTURE789", "status": "COMPLETED", "amount": 63.99,
+            "paypal_fee": 2.15, "net_amount": 61.84,
+        }
+
+    monkeypatch.setattr(orchestrator.paypal_orders, "authorize_order", fake_authorize_order)
+    monkeypatch.setattr(orchestrator.paypal_orders, "capture_authorization", fake_capture_authorization)
+
+    await orchestrator.continue_after_paypal_approval(tx["id"])
+
+    persisted = models.get_transaction(tx["id"])
+    assert persisted["state"] == "COMPLETED"
+    assert persisted["paypal_fee"] == 2.15
+    assert persisted["net_amount"] == 61.84

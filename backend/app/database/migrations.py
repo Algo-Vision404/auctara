@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     paypal_capture_id TEXT,
     paypal_status TEXT,
     paypal_approve_url TEXT,
+    paypal_fee REAL,
+    net_amount REAL,
     error TEXT,
     pending_question TEXT,
     conversation_state TEXT,
@@ -162,6 +164,16 @@ def run_migrations() -> None:
     # list. Empty '[]' for policies created before this column existed;
     # callers fall back to FALLBACK_CATEGORIES in that case.
     _ensure_column(conn, "policies", "categories", "TEXT NOT NULL DEFAULT '[]'")
+    # PayPal's own fee/net breakdown for a completed capture
+    # (seller_receivable_breakdown.paypal_fee / .net_amount - see
+    # app/paypal/orders.py::capture_authorization). Null until a capture
+    # actually completes, and always null for transactions that never
+    # reach CAPTURED (BLOCKED/FAILED/CANCELLED, etc.) since no capture ever
+    # happened for them. actual_amount already holds the gross amount, so
+    # only the two numbers gross_amount doesn't already give us are stored
+    # here, not a third gross_amount duplicate.
+    _ensure_column(conn, "transactions", "paypal_fee", "REAL")
+    _ensure_column(conn, "transactions", "net_amount", "REAL")
 
 
 def _ensure_column(conn, table: str, column: str, coltype: str) -> None:

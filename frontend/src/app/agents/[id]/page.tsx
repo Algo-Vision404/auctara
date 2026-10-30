@@ -231,7 +231,7 @@ export default function AgentDetailPage() {
       <main className="flex-1 space-y-6 px-5 py-6 md:px-8">
         {error && (
           <div className="card-surface border-l-4 border-l-[var(--color-warning)] p-4 text-sm text-[var(--color-warning)]">
-            {error} Showing the last data AgentAuth successfully loaded.
+            {error} Showing the last data Auctara successfully loaded.
           </div>
         )}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">

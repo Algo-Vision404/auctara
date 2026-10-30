@@ -82,6 +82,8 @@ export interface Transaction {
   paypal_capture_id: string | null;
   paypal_status: string | null;
   paypal_approve_url: string | null;
+  paypal_fee: number | null;
+  net_amount: number | null;
   error: string | null;
   pending_question: string | null;
   clarification_rounds?: number;

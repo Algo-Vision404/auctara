@@ -7,17 +7,17 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-TEST_DB = ROOT / "tests" / "test_agentauth.db"
+TEST_DB = ROOT / "tests" / "test_auctara.db"
 
 
 @pytest.fixture(autouse=True, scope="function")
 def clean_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "agentauth_test.db"
+    db_path = tmp_path / "auctara_test.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("AUDIT_HMAC_SECRET", "test-secret")
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "")
     monkeypatch.setenv("PAYPAL_CLIENT_SECRET", "")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    monkeypatch.setenv("GROQ_API_KEY", "")
     # Tests drive scheduling logic directly (test_scheduler.py) rather than
     # via the real background poll loop, so keep it off during API/app tests
     # for determinism and speed.
@@ -40,8 +40,8 @@ def clean_db(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _scope_guard_defaults_to_in_scope(monkeypatch):
     """The independent scope guard (app.agent.scope_guard.check_scope) makes
-    its own real OpenRouter call, separate from whatever a test already
-    stubbed out for the main research loop. OPENROUTER_API_KEY is "" for
+    its own real Groq call, separate from whatever a test already
+    stubbed out for the main research loop. GROQ_API_KEY is "" for
     every test (see clean_db above), so without this, every test that
     doesn't specifically care about the scope guard would see it fail
     closed (ok=False) on every single transaction, silently turning every
@@ -65,3 +65,31 @@ def _scope_guard_defaults_to_in_scope(monkeypatch):
         return ScopeVerdict(ok=True, in_scope=True, reason="test default: in scope")
 
     monkeypatch.setattr(orchestrator, "check_scope", _always_in_scope)
+
+
+@pytest.fixture(autouse=True)
+def _specificity_check_defaults_to_specific_enough(monkeypatch):
+    """_check_task_specificity (the pre-flight "does this task name a
+    product/use case AND a budget" gate run once at the very start of a
+    brand-new task) makes its own independent real Groq call too,
+    same situation as check_scope above: GROQ_API_KEY is "" for every
+    test, so without this, every test driving a real task through the
+    actual POST /tasks -> run_task path (not just ones calling
+    _run_research_loop directly) would see this gate fail open/closed in
+    whatever way an unconfigured client happens to raise, adding an
+    unaccounted-for pause/behavior that has nothing to do with what that
+    test is actually exercising.
+
+    Default every test to "specific enough, proceed" so pre-existing
+    ALLOW/APPROVAL_REQUIRED/BLOCK behavior is unaffected by this gate's
+    existence. A test that specifically wants to exercise the gate itself
+    overrides this after the fact with its own monkeypatch.setattr(
+    orchestrator, "_check_task_specificity", ...) call, same override
+    pattern as the scope guard fixture above.
+    """
+    import app.agent.orchestrator as orchestrator
+
+    async def _always_specific_enough(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(orchestrator, "_check_task_specificity", _always_specific_enough)

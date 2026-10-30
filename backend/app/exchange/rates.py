@@ -9,7 +9,7 @@ import httpx
 
 from app.config import get_settings
 
-logger = logging.getLogger("agentauth.exchange")
+logger = logging.getLogger("auctara.exchange")
 
 
 class ExchangeRateError(Exception):

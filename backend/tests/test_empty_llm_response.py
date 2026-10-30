@@ -1,4 +1,4 @@
-"""Real, observed failure: an OpenRouter free-tier model occasionally
+"""Real, observed failure: a free-tier model occasionally
 returns a normal 200 OK with `choices` set to None (or an empty list) -
 no exception, no error status, nothing indicating a problem. Every call
 site that read `response.choices[0]` directly crashed with a raw
@@ -138,7 +138,7 @@ def test_a_transient_empty_response_is_retried_and_the_task_still_completes(monk
     # succeeds - the orchestrator must never see this as anything other
     # than a normal successful research loop.
     completions = _FlakyThenGoodCompletions(fail_times=2, good_message=proposal)
-    monkeypatch.setattr(orchestrator, "_openrouter_client", _fake_client(completions))
+    monkeypatch.setattr(orchestrator, "_groq_client", _fake_client(completions))
 
     with TestClient(app) as client:
         agent = _permissive_agent(client)
@@ -158,7 +158,7 @@ def test_a_transient_empty_response_is_retried_and_the_task_still_completes(monk
 
 def test_persistently_empty_responses_fail_cleanly_not_with_a_raw_crash(monkeypatch):
     completions = _AlwaysEmptyCompletions()
-    monkeypatch.setattr(orchestrator, "_openrouter_client", _fake_client(completions))
+    monkeypatch.setattr(orchestrator, "_groq_client", _fake_client(completions))
 
     with TestClient(app) as client:
         agent = _permissive_agent(client)

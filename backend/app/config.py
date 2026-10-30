@@ -12,13 +12,24 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The one place "which frontend origins does this backend actually trust"
-# is defined, so CORS (app/main.py) and the PayPal return/cancel URL a
-# task's browser-reported origin is allowed to influence (app/api/routes/
-# tasks.py's _browser_origin) can never drift out of sync with each other.
+# is defined, so CORS (app/main.py, which imports TRUSTED_ORIGIN_REGEX.pattern
+# directly rather than keeping its own separate copy) and the PayPal
+# return/cancel URL a task's browser-reported origin is allowed to influence
+# (app/api/routes/tasks.py's _browser_origin) can never drift out of sync
+# with each other.
+#
+# Two preview domain families are trusted, not just one: the raw sandbox
+# host (https://{port}-{sandboxId}.e2b.app) AND the branded wrapper domain
+# the hosting platform actually puts in front of it for end users
+# (https://{slug}.arena.site) - a real user's browser is on the latter, not
+# the former, so trusting only e2b.app silently broke the PayPal return
+# redirect (and anything else keyed off the browser's real origin) for
+# every real user, even though it worked in every direct-to-sandbox test.
+#
 # fullmatch, not match/search: an unanchored-at-the-end pattern would let
 # something like "https://x.e2b.app.evil.example" slip through as a
 # "contains an allowed substring" match.
-TRUSTED_ORIGIN_REGEX = re.compile(r"https://.*\.e2b\.app")
+TRUSTED_ORIGIN_REGEX = re.compile(r"https://.*\.(e2b\.app|arena\.site)")
 
 
 def is_trusted_frontend_origin(origin: str | None) -> bool:
@@ -43,13 +54,13 @@ class Settings(BaseSettings):
     paypal_test_card_cvv: str = ""
     paypal_test_card_name: str = ""
 
-    # OpenRouter (OpenAI compatible)
-    openrouter_api_key: str = ""
-    openrouter_model: str = "openai/gpt-4o-mini"
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # Groq (OpenAI compatible)
+    groq_api_key: str = ""
+    groq_model: str = "openai/gpt-oss-120b"
+    groq_base_url: str = "https://api.groq.com/openai/v1"
 
     # Database
-    database_url: str = "sqlite:///./agentauth.db"
+    database_url: str = "sqlite:///./auctara.db"
 
     # Audit
     audit_hmac_secret: str = "change-me-in-production"
@@ -81,6 +92,22 @@ class Settings(BaseSettings):
     # fire while a real checkout could still legitimately be in progress.
     paypal_verification_timeout_minutes: int = 30
 
+    # How long a transaction may sit with zero activity in any of the
+    # states a background research/propose/policy/authorize coroutine must
+    # be the one actively driving forward (see
+    # orchestrator.ORPHANABLE_STATES) before the scheduler's reconciliation
+    # sweep fails it cleanly. Unlike VERIFYING, nothing external (a human,
+    # PayPal) can ever move one of these states forward on its own - if the
+    # process actually running that coroutine dies (a crash, a deploy, a
+    # sandbox reset), the transaction is stuck forever with no other way
+    # out. Measured against the transaction's own *last activity event*,
+    # not just time-since-it-entered-the-state, so a transaction that is
+    # still genuinely working - just slowly, e.g. a sluggish free-tier LLM
+    # or a web search falling back through several blocked providers - is
+    # never failed out from under it; only true silence this long is ever
+    # treated as abandoned.
+    orphaned_task_timeout_minutes: int = 10
+
     @property
     def paypal_base_url(self) -> str:
         if self.paypal_environment.lower() == "live":
@@ -92,7 +119,7 @@ class Settings(BaseSettings):
         url = self.database_url
         if url.startswith("sqlite:///"):
             return url[len("sqlite:///"):]
-        return "./agentauth.db"
+        return "./auctara.db"
 
     @property
     def trusted_frontend_origins(self) -> set[str]:

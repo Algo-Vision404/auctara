@@ -65,7 +65,7 @@ def _card_payment_source() -> Optional[PaymentSource]:
             number=s.paypal_test_card_number,
             expiry=s.paypal_test_card_expiry,
             security_code=s.paypal_test_card_cvv,
-            name=s.paypal_test_card_name or "AgentAuth Agent",
+            name=s.paypal_test_card_name or "Auctara Agent",
         )
     )
 
@@ -77,12 +77,12 @@ async def create_order(amount: float, currency: str, description: str,
     purchase_unit = PurchaseUnitRequest(
         amount=Money(currency_code=currency.upper(), value=f"{amount:.2f}"),
         custom_id=custom_id,
-        description=description[:127] if description else "AgentAuth purchase",
+        description=description[:127] if description else "Auctara purchase",
     )
     application_context = OrderApplicationContext(
         return_url=return_url,
         cancel_url=cancel_url,
-        brand_name="AgentAuth",
+        brand_name="Auctara",
         shipping_preference="NO_SHIPPING",
         user_action="PAY_NOW",
     )
@@ -118,7 +118,7 @@ async def create_order(amount: float, currency: str, description: str,
     # the transaction id alone is a safe, sufficient, stable key.
     request_options = {"body": order_request, "prefer": RETURN_REPRESENTATION}
     if card_source:
-        request_options["paypal_request_id"] = f"agentauth-order-{custom_id}"
+        request_options["paypal_request_id"] = f"auctara-order-{custom_id}"
 
     try:
         result = client.orders.create_order(request_options)
@@ -154,7 +154,7 @@ async def authorize_order(order_id: str) -> dict:
         result = client.orders.authorize_order({
             "id": order_id,
             "prefer": RETURN_REPRESENTATION,
-            "paypal_request_id": f"agentauth-authorize-{order_id}",
+            "paypal_request_id": f"auctara-authorize-{order_id}",
         })
     except PAYPAL_SDK_EXCEPTIONS as exc:
         raise translate_sdk_error(exc, "PayPal authorization failed") from exc
@@ -187,7 +187,7 @@ async def capture_authorization(authorization_id: str, mock_response: str | None
     options = {
         "authorization_id": authorization_id,
         "prefer": RETURN_REPRESENTATION,
-        "paypal_request_id": f"agentauth-capture-{authorization_id}",
+        "paypal_request_id": f"auctara-capture-{authorization_id}",
     }
     if mock_response:
         options["paypal_mock_response"] = json.dumps({"mock_application_codes": mock_response})
@@ -197,11 +197,21 @@ async def capture_authorization(authorization_id: str, mock_response: str | None
         raise translate_sdk_error(exc, "PayPal capture failed") from exc
 
     captured = to_wire_dict(result.body) or {}
+    # PayPal's own documented fee/net breakdown for this capture
+    # (seller_receivable_breakdown), present on the SDK's PaymentsCapture
+    # model and confirmed live against our own sandbox data - see the
+    # paypal-server-sdk==2.4.0 bug report this followed up on, which turned
+    # out not to reproduce here. "Not available for transactions that are
+    # in pending state" per PayPal's own model docs, so it's genuinely
+    # absent (not a bug) whenever a capture doesn't complete synchronously.
+    breakdown = captured.get("seller_receivable_breakdown") or {}
     return {
         "capture_id": captured.get("id"),
         "status": captured.get("status"),
         "amount": _amount_value(captured.get("amount")),
         "currency": (captured.get("amount") or {}).get("currency_code"),
+        "paypal_fee": _amount_value(breakdown.get("paypal_fee")),
+        "net_amount": _amount_value(breakdown.get("net_amount")),
         "raw_status_code": result.status_code,
     }
 
@@ -217,7 +227,7 @@ async def void_authorization(authorization_id: str) -> dict:
         result = client.payments.void_payment({
             "authorization_id": authorization_id,
             "prefer": RETURN_REPRESENTATION,
-            "paypal_request_id": f"agentauth-void-{authorization_id}",
+            "paypal_request_id": f"auctara-void-{authorization_id}",
         })
     except PAYPAL_SDK_EXCEPTIONS as exc:
         raise translate_sdk_error(exc, "PayPal void failed") from exc

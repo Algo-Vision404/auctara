@@ -45,7 +45,7 @@ class _SequentialCompletions:
 
 def _fake_client_sequence(replies: list[str]):
     client = SimpleNamespace(chat=SimpleNamespace(completions=_SequentialCompletions(replies)))
-    return lambda: (client, SimpleNamespace(openrouter_model="fake-model"))
+    return lambda: (client, SimpleNamespace(groq_model="fake-model"))
 
 
 FULL_DRAFT = {

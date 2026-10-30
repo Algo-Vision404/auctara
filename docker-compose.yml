@@ -32,12 +32,12 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - OPENROUTER_MODEL=${OPENROUTER_MODEL:-openai/gpt-4o-mini}
       - CHANNEL3_API_KEY=${CHANNEL3_API_KEY:-}
-      - DATABASE_URL=sqlite:////data/agentauth.db
+      - DATABASE_URL=sqlite:////data/auctara.db
       - AUDIT_HMAC_SECRET=${AUDIT_HMAC_SECRET}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
       - RUN_SCHEDULER_INPROCESS=${RUN_SCHEDULER_INPROCESS:-true}
     volumes:
-      - agentauth_data:/data
+      - auctara_data:/data
 
   frontend:
     build:
@@ -64,13 +64,13 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - OPENROUTER_MODEL=${OPENROUTER_MODEL:-openai/gpt-4o-mini}
       - CHANNEL3_API_KEY=${CHANNEL3_API_KEY:-}
-      - DATABASE_URL=sqlite:////data/agentauth.db
+      - DATABASE_URL=sqlite:////data/auctara.db
       - AUDIT_HMAC_SECRET=${AUDIT_HMAC_SECRET}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
     volumes:
-      - agentauth_data:/data
+      - auctara_data:/data
     depends_on:
       - backend
 
 volumes:
-  agentauth_data:
+  auctara_data:

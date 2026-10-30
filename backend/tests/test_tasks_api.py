@@ -93,3 +93,35 @@ def test_lookalike_e2b_suffix_origin_is_rejected():
         assert resp.status_code == 200
         task = resp.json()
         assert task["frontend_origin"] is None
+
+
+def test_legitimate_arena_preview_origin_is_also_trusted_and_recorded():
+    """The real browser a human uses is on the hosting platform's own
+    branded wrapper domain (https://{slug}.arena.site), proxying through to
+    the raw e2b.app sandbox - not the e2b.app host itself. Trusting only
+    e2b.app silently broke the PayPal return redirect (and anything else
+    keyed off the browser's real origin) for every real user, even though
+    it worked in every direct-to-sandbox test that used an e2b.app Origin."""
+    agent = _make_agent()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/tasks",
+            json={"agent_id": agent["id"], "prompt": "buy pens"},
+            headers={"Origin": "https://sbx-wc2dolfktsyfwkp6.arena.site"},
+        )
+        assert resp.status_code == 200
+        task = resp.json()
+        assert task["frontend_origin"] == "https://sbx-wc2dolfktsyfwkp6.arena.site"
+
+
+def test_lookalike_arena_suffix_origin_is_rejected():
+    agent = _make_agent()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/tasks",
+            json={"agent_id": agent["id"], "prompt": "buy pens"},
+            headers={"Origin": "https://sbx-wc2dolfktsyfwkp6.arena.site.evil.example"},
+        )
+        assert resp.status_code == 200
+        task = resp.json()
+        assert task["frontend_origin"] is None

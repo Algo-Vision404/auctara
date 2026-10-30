@@ -16,7 +16,7 @@ against "gambling"/"crypto" could never be true - any such purchase would
 always have been classified as "other" and sailed straight through.
 
 This exercises the real orchestrator + policy engine end-to-end, with only
-the OpenRouter network call faked out, the same pattern used by
+the Groq network call faked out, the same pattern used by
 test_agent_scope.py.
 """
 from __future__ import annotations
@@ -120,7 +120,7 @@ def test_gambling_purchase_is_now_actually_blocked_despite_the_category_enum(mon
                 "source_url": "https://draftkings.com/deposit",
             },
         )])
-        monkeypatch.setattr(orchestrator, "_openrouter_client", _fake_client_returning(proposal))
+        monkeypatch.setattr(orchestrator, "_groq_client", _fake_client_returning(proposal))
 
         task = client.post(
             "/tasks", json={"agent_id": agent["id"], "prompt": "Put $50 into my DraftKings account"}
@@ -147,7 +147,7 @@ def test_unrelated_other_category_purchase_still_goes_through(monkeypatch):
                 "source_url": "https://officedepot.com/paper",
             },
         )])
-        monkeypatch.setattr(orchestrator, "_openrouter_client", _fake_client_returning(proposal))
+        monkeypatch.setattr(orchestrator, "_groq_client", _fake_client_returning(proposal))
 
         task = client.post(
             "/tasks", json={"agent_id": agent["id"], "prompt": "Order printer paper"}
