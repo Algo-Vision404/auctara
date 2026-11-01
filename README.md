@@ -66,7 +66,7 @@ that same policy engine on every single firing, rather than being
 trusted once and left to run unchecked.
 
 ## Architecture
-
+```mermaid
 flowchart TD
     A[User] --> B[Natural-language task]
     B --> C["AI Agent — Groq<br/>tool-calling: search_web, get_exchange_rate, create_purchase_proposal"]
@@ -80,7 +80,7 @@ flowchart TD
     F -->|BLOCK| I
     G --> J[(HMAC-chained Audit Trail)]
     I --> J
-
+```
 The LLM is advisory. The policy engine is authoritative. The frontend never
 decides a financial outcome. It only renders what the backend already
 decided.
