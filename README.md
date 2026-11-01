@@ -220,17 +220,19 @@ See `backend/app/` for the module layout described in the design spec
 ### 1. Backend
 
 ```bash
+cd auctara
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp ../.env.example .env   # then fill in the values below
-python run.py             # http://localhost:8000
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload          # http://localhost:8000
 ```
 
 ### 2. Frontend
 
 ```bash
+cd auctara
 cd frontend
 npm install
 npm run dev                # http://localhost:3000, proxies /api/* to the backend
