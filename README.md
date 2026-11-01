@@ -302,31 +302,3 @@ inactive-agent safety, run-history retrieval), stale-transaction
 reconciliation safety nets, and the core FastAPI routes (including a check
 that a missing AI key fails the task visibly instead of silently faking a
 result).
-
-## Demo
-
-```text
-Live Demo:
-[URL]   <!-- fill in after deploying, e.g. via render.yaml -->
-
-Demo Video:
-[URL]   <!-- fill in after recording -->
-```
-
-See [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for the shot-by-shot script
-used to record the demo video — every beat in it is a real action against
-the running app, not a narrated mockup. See
-[`docs/DEVPOST_SUBMISSION.md`](docs/DEVPOST_SUBMISSION.md) for the full
-written submission draft (inspiration, what it does, how it was built,
-challenges, accomplishments, what's next).
-
-## Honest notes on this being a hackathon project
-
-- This runs comfortably on a single small instance; there is no attempt at
-  "production-grade" infrastructure. SQLite with WAL mode is intentionally
-  simple rather than a distributed financial ledger.
-- Free-tier Render services cold-start: the first request after idling can
-  take 30–60 seconds while the instance spins back up.
-- The agent's two-phase payment flow uses PayPal's Orders v2 API with
-  `intent=AUTHORIZE`, so a price-variance or policy failure after order
-  creation results in a real `void`, not merely "we didn't click capture."
