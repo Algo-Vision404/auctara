@@ -67,25 +67,19 @@ trusted once and left to run unchecked.
 
 ## Architecture
 
-```text
-User
- ↓
-Natural-language task
- ↓
-AI Agent (Groq, tool-calling: search_web, get_exchange_rate, create_purchase_proposal)
- ↓
-Live web research (DuckDuckGo)
- ↓
-Purchase proposal (advisory only)
- ↓
-Deterministic Policy Engine  →  ALLOW / APPROVAL_REQUIRED / BLOCK
- ↓                                        ↓
- ↓                                 Human approval
- ↓                                        ↓
-PayPal Sandbox Orders API (authorize → verify price → capture / void)
- ↓
-HMAC-chained Audit Trail
-```
+flowchart TD
+    A[User] --> B[Natural-language task]
+    B --> C["AI Agent — Groq<br/>tool-calling: search_web, get_exchange_rate, create_purchase_proposal"]
+    C --> D[Live web research<br/>DuckDuckGo]
+    D --> E[Purchase proposal<br/>advisory only, not authoritative]
+    E --> F{{Deterministic Policy Engine}}
+    F -->|ALLOW| G[PayPal Sandbox Orders API<br/>authorize → verify price → capture]
+    F -->|APPROVAL_REQUIRED| H[Human approval]
+    H -->|approved| G
+    H -->|rejected| I[Void transaction]
+    F -->|BLOCK| I
+    G --> J[(HMAC-chained Audit Trail)]
+    I --> J
 
 The LLM is advisory. The policy engine is authoritative. The frontend never
 decides a financial outcome. It only renders what the backend already
